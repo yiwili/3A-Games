@@ -155,6 +155,40 @@ body.tl #uiMode{display:none!important}
 .ccard .el{font-size:9.5px;color:#8b939c;margin-top:2px}
 .ccard .tag{position:absolute;right:6px;top:5px;font-size:9px;color:#6de08a}
 .teFtr{margin-top:15px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+/* ---- 角色总面板（Esc / 手机端头像）：世界等级、突破任务与所有功能按钮的收纳处 ---- */
+#hubWrap{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(4,8,14,.9);z-index:28;backdrop-filter:blur(7px);padding:18px;overflow:auto}
+#hubWrap.on{display:flex}
+.hubGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:12px}
+.hubCard{border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:12px 14px;
+  background:rgba(255,255,255,.025)}
+.hubCard h4{margin:0 0 8px;font-size:13px;letter-spacing:2px;color:var(--gold2)}
+.hubBar{height:8px;border-radius:5px;background:rgba(255,255,255,.1);overflow:hidden;margin:7px 0}
+.hubBar i{display:block;height:100%;background:linear-gradient(90deg,#ffe08a,#d9ab3e)}
+.hubTxt{font-size:11.5px;color:#a8b0b8;line-height:1.8}
+.hubLv{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+.hubLv b{cursor:pointer;font-size:11.5px;min-width:30px;text-align:center;padding:5px 8px;
+  border-radius:9px;border:1px solid rgba(255,255,255,.18);color:#c9d2db;
+  user-select:none;touch-action:manipulation}
+.hubLv b.on{color:#2a2008;font-weight:800;border-color:transparent;
+  background:linear-gradient(180deg,#ffe08a,#d9ab3e)}
+.hubLv b.no{opacity:.34}
+.hubBtn{cursor:pointer;font-size:12px;padding:8px 14px;border-radius:16px;display:inline-flex;
+  gap:7px;align-items:center;border:1px solid rgba(211,188,142,.42);color:#e6dfd0;
+  background:rgba(255,215,110,.07);user-select:none;touch-action:manipulation}
+.hubBtn:hover{color:#fff;background:rgba(255,215,110,.18)}
+.hubBtn.pr{color:#2a2008;font-weight:800;border-color:transparent;
+  background:linear-gradient(180deg,#ffe08a,#d9ab3e)}
+.hubBtn.off{opacity:.4;pointer-events:none}
+.hubFunc{display:flex;flex-wrap:wrap;gap:8px}
+.hubTag{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:9px;
+  border:1px solid rgba(255,255,255,.2);color:#9aa3ad;margin-left:6px}
+/* 手机端左上角的头像入口（小地图在右上角，两边不抢位置） */
+#hubBtn{position:absolute;left:14px;top:12px;width:54px;height:54px;border-radius:50%;
+  display:none;align-items:center;justify-content:center;font-size:22px;cursor:pointer;
+  border:2px solid rgba(211,188,142,.6);background:rgba(10,14,20,.74);color:#ffe9b0;
+  pointer-events:auto;z-index:14;touch-action:manipulation}
+body.touch #hubBtn{display:flex}
 /* ---- 背包 · 武器 ---- */
 #bagWrap{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
   background:rgba(4,8,14,.9);z-index:27;backdrop-filter:blur(7px);padding:18px;overflow:auto}
@@ -217,6 +251,57 @@ body.tl #uiMode{display:none!important}
 .arBtn.pr{color:#2a2008;font-weight:800;border-color:transparent;
   background:linear-gradient(180deg,#ffe08a,#d9ab3e)}
 .arBtn.sel{color:#ffe9b0;border-color:rgba(255,215,110,.8)}
+/* 圣遗物筛选条：类型（套装）/ 部位 / 星级三组，选中的一律用金色实心 */
+.artFil{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:0 0 9px;font-size:10.5px}
+.artFil .fk{color:#8f98a3;letter-spacing:.5px;margin:3px 1px 0 0}
+.artFil .fv{cursor:pointer;padding:3px 9px;border-radius:10px;user-select:none;
+  border:1px solid rgba(255,255,255,.16);color:#aeb7c1;transition:.15s}
+.artFil .fv:hover{color:#fff;border-color:rgba(211,188,142,.7)}
+.artFil .fv.on{color:#2a2008;font-weight:800;border-color:transparent;
+  background:linear-gradient(180deg,#ffe08a,#d9ab3e)}
+.artFil .fv.off{opacity:.4}
+.artFil .fn{color:#c8b58a;margin-left:2px}
+/* 收缩态：一行条件带，横向可滚（滚轮与手机左右滑都走这条） */
+.artFil{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;white-space:nowrap;
+  -webkit-overflow-scrolling:touch;scrollbar-width:thin;padding-bottom:3px}
+.artFil::-webkit-scrollbar{height:6px}
+.artFil::-webkit-scrollbar-thumb{background:rgba(211,188,142,.4);border-radius:3px}
+.artFil .fk,.artFil .tagx,.artFil .fv{flex:0 0 auto}
+.artFil .tagx{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;
+  border:1px solid rgba(255,255,255,.16);color:#c9d2db;background:rgba(255,255,255,.04)}
+.artFil .tagx.on{color:#ffe9b0;border-color:rgba(255,215,110,.55);cursor:pointer}
+.artFil .tagx i{font-style:normal;color:#8b939c;font-size:10px}
+.artFil .fgrow{flex:1 1 auto;min-width:10px}
+.artFil .fv.exp{border-color:rgba(211,188,142,.55);color:#ffe9b0}
+.artFil .fv.pr{color:#2a2008;font-weight:800;border-color:transparent;
+  background:linear-gradient(180deg,#ffe08a,#d9ab3e)}
+/* 展开态：批量勾选区，高度固定，里面自己上下滚 */
+.artFil2{display:none;margin:0 0 10px}
+.artFil2.open{display:block}
+.artFil2 .fgrp{border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 10px;
+  margin-bottom:7px;background:rgba(255,255,255,.025)}
+.artFil2 .fgrp>b{display:block;font-size:11px;letter-spacing:1.5px;color:var(--gold2);margin-bottom:6px}
+.artFil2 .fitems{display:flex;flex-wrap:wrap;gap:5px;max-height:104px;overflow-y:auto;
+  padding-right:4px;scrollbar-width:thin}
+.artFil2 .fitems::-webkit-scrollbar{width:6px}
+.artFil2 .fitems::-webkit-scrollbar-thumb{background:rgba(211,188,142,.4);border-radius:3px}
+.artFil2 .fitem{cursor:pointer;font-size:10.5px;padding:3px 8px;border-radius:9px;user-select:none;
+  touch-action:manipulation;border:1px solid rgba(255,255,255,.16);color:#aeb7c1;
+  display:inline-flex;align-items:center;gap:3px}
+.artFil2 .fitem::before{content:'☐ ';color:#8b939c}
+.artFil2 .fitem.on::before{content:'☑ ';color:#6a5410}
+.artFil2 .fitem:hover{color:#fff;border-color:rgba(211,188,142,.7)}
+.artFil2 .fitem.on{color:#2a2008;font-weight:800;border-color:transparent;
+  background:linear-gradient(180deg,#ffe08a,#d9ab3e)}
+.artFil2 .fitem.no{opacity:.35}
+.artFil2 .fitem i{font-style:normal;color:#8b939c;font-size:9.5px}
+.artFil2 .fitem.on i{color:#6a5410}
+.artFil2 .fops{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:2px}
+.artFil2 .fv{cursor:pointer;font-size:10.5px;padding:4px 11px;border-radius:11px;user-select:none;
+  touch-action:manipulation;border:1px solid rgba(255,255,255,.2);color:#c9d2db}
+.artFil2 .fv:hover{color:#fff;border-color:rgba(211,188,142,.7)}
+.artFil2 .fv.pr{color:#2a2008;font-weight:800;border-color:transparent;
+  background:linear-gradient(180deg,#ffe08a,#d9ab3e)}
 .artUp{border:1px dashed rgba(211,188,142,.34);border-radius:9px;padding:11px 13px;margin:4px 0 10px;
   background:rgba(255,255,255,.02);font-size:11.5px;line-height:1.85}
 .artUp .qk{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:7px 0}
@@ -803,7 +888,8 @@ body.touch #chatBox{left:80px;bottom:104px;width:min(300px,54vw)}
 #keyPanel{position:absolute;right:16px;top:196px;display:flex;gap:8px}
 /* 小地图：常驻右上角，按 M 开大地图时整块隐藏 */
 #miniWrap{position:absolute;right:16px;top:12px;width:176px;height:176px;
-  border-radius:50%;overflow:hidden;background:rgba(6,10,16,.74);
+  border-radius:50%;overflow:hidden;background:rgba(6,10,16,.74);cursor:pointer;
+  pointer-events:auto;touch-action:manipulation;
   border:2px solid rgba(211,188,142,.45);box-shadow:0 4px 18px rgba(0,0,0,.5)}
 #miniWrap.off{display:none}
 #miniMap{display:block;width:176px;height:176px}
@@ -942,9 +1028,8 @@ body.touch #touchUI{display:block}
    右下角四个圆键 = 跳跃/E/Q/普攻，所以桌面端那三条文字快捷条和 E/Q 冷却圈全部撤掉，
    否则同一功能在屏幕上出现两三次，还会互相压住 */
 body.touch #teamBar,body.touch #bagBar,body.touch #wishBar,body.touch #skills{display:none}
-body.touch #keyPanel{left:12px;right:auto;top:12px;gap:6px}
-body.touch #keyPanel .kb{padding:5px 9px}
-body.touch #keyPanel .kb b,body.touch #keyPanel .kb kbd{display:none}
+/* 手机端把顶部功能按钮条整个收进角色面板，只留左上角那个头像入口 */
+body.touch #keyPanel{display:none}
 body.touch #miniWrap{right:12px;top:8px;width:132px;height:132px}
 body.touch #miniMap{width:132px;height:132px}
 body.touch #top{gap:8px;font-size:11px;top:10px}
@@ -1085,6 +1170,8 @@ body.tl #tBtns{right:14px;bottom:18px}
   </div>
   <div id="dmgLayer"></div>
   <div id="top">
+    <div class="box">冒险 <b id="uiAdv">1</b></div>
+    <div class="box">世界 <b id="uiWl">0</b></div>
     <div class="box">摩拉 <b id="uiMora">0</b></div>
     <div class="box">原石 <b id="uiGem">0</b></div>
     <div class="box">击破 <b id="uiKill">0</b></div>
@@ -1095,7 +1182,9 @@ body.tl #tBtns{right:14px;bottom:18px}
     <canvas id="miniMap" width="176" height="176"></canvas>
     <div id="miniZone">蒙德 · 野外</div>
   </div>
+  <div id="hubBtn" title="角色面板">🧭</div>
   <div id="keyPanel">
+    <div class="kb" id="kbHub"><i>🧭</i><b>角色</b><kbd>Esc</kbd></div>
     <div class="kb" id="kbTeam"><i>👥</i><b>编队</b><kbd>T</kbd></div>
     <div class="kb" id="kbBag"><i>🎒</i><b>背包</b><kbd>B</kbd></div>
     <div class="kb" id="kbWish"><i>🌟</i><b>祈愿</b><kbd>C</kbd></div>
@@ -1225,6 +1314,8 @@ body.tl #tBtns{right:14px;bottom:18px}
           <div class="artSlots" id="bgArtSlots"></div>
           <div class="artSets" id="bgArtSets"></div>
           <div class="teSec">全部圣遗物 · 点一下穿给当前角色，「强化」打开下方升级区</div>
+          <div class="artFil" id="bgArtFil"></div>
+          <div class="artFil2" id="bgArtFil2"></div>
           <div class="artList" id="bgArt"></div>
           <div id="bgArtUp"></div>
         </div>
@@ -1496,7 +1587,7 @@ body.tl #tBtns{right:14px;bottom:18px}
   <div class="gKeys">
     <kbd>W A S D</kbd> 移动 · <kbd>Shift</kbd> 点一下闪身步（无敌帧）/ 按住冲刺 · <kbd>空格</kbd> 跳跃/滑翔/游泳下潜 · <kbd>鼠标左键</kbd> 攻击 · <kbd>右键</kbd> 弓系瞄准<br>
     <kbd>E</kbd> 元素战技（长按有变体） · <kbd>Q</kbd> 元素爆发 · <kbd>F</kbd> 交互 · <kbd>M</kbd> 地图传送 ·
-    <kbd>T</kbd> 编队 · <kbd>B</kbd> 背包（全员可装备） · <kbd>C</kbd> 祈愿抽武器 · <kbd>Y</kbd> 冒险书（副本与 boss 传送 / 深渊领奖） · <kbd>O</kbd> 多人模式 · <kbd>回车</kbd> 左下角聊天
+    <kbd>T</kbd> 编队 · <kbd>B</kbd> 背包（全员可装备） · <kbd>C</kbd> 祈愿抽武器 · <kbd>Y</kbd> 冒险书（副本与 boss 传送 / 深渊领奖） · <kbd>O</kbd> 多人模式 · <kbd>回车</kbd> 左下角聊天 · <kbd>Esc</kbd> 角色面板（世界等级与全部按钮）
   </div>
   <div class="gNick" id="gNick">
     <div class="row">
@@ -1505,6 +1596,23 @@ body.tl #tBtns{right:14px;bottom:18px}
       <span class="ab hi" id="nickGo">进入提瓦特</span>
     </div>
     <div class="who" id="nickTip"></div>
+  </div>
+</div>
+<div id="hubWrap">
+  <div class="mapPanel">
+    <div class="hdr">
+      <div class="ttl">角色面板 <span class="sub" id="hubSub"></span></div>
+      <div class="cls" id="btnHubClose" title="关闭（Esc）">×</div>
+    </div>
+    <div class="hubGrid">
+      <div class="hubCard"><h4>冒险等级</h4><div id="hubAdv"></div></div>
+      <div class="hubCard"><h4>世界等级</h4><div id="hubWl"></div></div>
+      <div class="hubCard"><h4>世界等级突破</h4><div id="hubBt"></div></div>
+      <div class="hubCard"><h4>功能</h4><div class="hubFunc" id="hubFunc"></div></div>
+    </div>
+    <div class="teFtr"><div class="tip" id="hubTip">
+      世界等级只改怪与 boss 的血量、攻击与掉落，天理完全不吃这套加成；随时可以在上面调低。
+    </div></div>
   </div>
 </div>
 <div id="admWrap">
@@ -3042,6 +3150,31 @@ for(let qr=0;qr<3;qr++){
   }
 }
 let qiuBoss=null,qiuBossRespawnT=0,qiuBossSlain=0;
+/* ============ 冒险等级与世界等级 ============
+   冒险等级（advLv）只是"资格线"：每满 10 级解锁一次世界等级突破，本身不给角色任何数值。
+   世界等级（worldLv）才是全局难度旋钮：怪与 boss 血量 ×(1+WL)、攻击 ×(1+0.2·WL)，
+   天理（isTianli）完全豁免。奖励按世界等级每级 +15% 同步浮动，调低就同步变差。
+   这些状态必须声明在世界搭建之前：Enemy 与各只 boss 的构造器在脚本执行期就会调 wlApply。 */
+const ADV_CAP=80;                       // 80 级 = 8 次突破，正好顶到世界等级上限
+const WL_CAP=8;
+let advLv=1,advExp=0,worldLv=0,wlMax=0;
+/* 突破任务状态：0=还不够格 / 1=可接取 / 2=已接取待击杀 / 3=已击杀待交付 */
+let btState=0,btBoss='';
+function advNeed(lv){return Math.round(30+lv*12+lv*lv*0.22);}
+function wlHpMul(){return 1+worldLv;}
+function wlAtkMul(){return 1+0.2*worldLv;}
+function wlGain(v){return Math.max(1,Math.round(v*(1+0.15*worldLv)));}
+/* 血量一律从"出厂基础值"重算，所以反复调档不会像连乘那样越漂越远；
+   当前血量按百分比等比换算，正在打的 boss 不会因为改档被白送或瞬杀。
+   攻击倍率不在这里乘：六只区域首领的招式伤害是写死的数字，所以统一加在 hurtPlayer 里。 */
+function wlApply(e){
+  if(!e||e.isTianli)return;
+  if(e.baseHp===undefined)e.baseHp=e.hpMax;
+  const pct=e.hpMax>0?clamp(e.hp/e.hpMax,0,1):1;
+  e.hpMax=Math.max(1,Math.round(e.baseHp*wlHpMul()));
+  e.hp=Math.max(1,Math.round(e.hpMax*pct));
+  if(e.barOn&&typeof updateBossBar==='function')updateBossBar();
+}
 const qiuSpinners=[],qiuHolos=[],qiuPortals=[],qiuPulses=[];
 /* 大王的延迟爆点（导弹、跃砸余波）与地面补员计时 */
 const qiuEchoes=[];
@@ -21826,13 +21959,15 @@ const CHAR_DEF={traveler:96,amber:74,kaeya:88,lisa:70,raiden:79,ganyu:82,
 const BASE_CRIT=0.10,BASE_CRIT_DMG=1.50;   // 人人都有 10% 暴击、150% 爆伤
 /* 全屏遮罩：大地图、编队、背包、祈愿、福利弹窗。任何一个开着都不再吃游戏操作 */
 let wishOpen=false,wishFxOn=false,giftOpen=false,giftDone=false;
+/* 角色总面板（Esc / 手机端左上角头像）：所有功能按钮的收纳处，也管世界等级 */
+let hubOpen=false;
 /* 深渊选层窗（abyUI）与冒险书（hb*）的开关状态声明在这里：
    modalOpen 在初始化阶段就会被调到，把 const/let 放在文件后半段会撞 TDZ */
 const abyUI={open:false,floor:1,pane:'floor',teams:[[],[]]};
 let hbOpen=false,hbTab='wep',hbDropOpen=false,hbDropKey='';
 let audOpen=false;                 /* 管理员自检面板；必须声明在 modalOpen 之前 */
 function modalOpen(){
-  return mapOpen||teamEditOpen||bagOpen||wishOpen||giftOpen||wishFxOn||netOpen||
+  return mapOpen||teamEditOpen||bagOpen||wishOpen||giftOpen||wishFxOn||netOpen||hubOpen||
          abyUI.open||hbOpen||hbDropOpen||audOpen;
 }
 const bag=[],equipByChar={};
@@ -22246,6 +22381,24 @@ const ART_SHORT={flower:'花',plume:'羽',sands:'沙',goblet:'杯',circlet:'冠'
 let artSel=0;                       // 正在强化的那件的 uid
 let artFeed={};                     // uid -> 1，喂料勾选
 let artQuick=[1,1,1,0,0];           // 「一键放入」按星级筛，默认勾 1~3 星
+/* 列表筛选：类型（套装）/ 部位 / 星级三组，每组都是多选——组内取并集、组间取交集，
+   一组都不勾就是"这组不限"。页签默认收缩：只留一条横向可滚的条件带，
+   点「展开筛选」才出批量勾选区（固定高度、内部上下滚），勾完必须点「确定」才生效。 */
+const artF={set:[],slot:[],star:[]};
+let artOpen=false;            // 圣遗物页签：false=收缩（默认）/ true=展开批量勾选
+let artDraft=null;            // 展开期间的临时勾选，取消就丢掉
+function artHas(){return !!(artF.set.length||artF.slot.length||artF.star.length);}
+function artPass(a){
+  if(artF.set.length&&artF.set.indexOf(a.set)<0)return false;
+  if(artF.slot.length&&artF.slot.indexOf(a.slot)<0)return false;
+  if(artF.star.length&&artF.star.indexOf(a.star)<0)return false;
+  return true;
+}
+function artCount(){let n=0;for(const a of arts)if(artPass(a))n++;return n;}
+function artDraftOn(arr,v){
+  const i=arr.indexOf(v);
+  if(i<0)arr.push(v);else arr.splice(i,1);
+}
 function artLvNeed(a){return Math.max(1,Math.round(ART_EXP[a.star]/(ART_MAXLV[a.star]||1)));}
 function artFeedExp(a){return ART_LV_EXP[a.star]+(a.lv|0)*Math.ceil(ART_LV_EXP[a.star]/2);}
 function artUpCost(a){return 80*a.star*((a.lv|0)+1);}
@@ -22400,17 +22553,74 @@ function renderArt(){
         Math.round(artEmDmg(id)*100)/10+'%</span>';
   }else sh='<span class="st">先在左边点一个角色</span>';
   E.artSets.innerHTML=sh;
-  /* ---- 列表：已装备优先，再按星级 / 强化等级 ---- */
-  const rows=arts.slice().sort(function(x,y){
+  /* ---- 条件带（收缩）+ 批量勾选区（展开）---- */
+  const cntSet={},cntSlot={},cntStar={};
+  for(const a of arts){
+    cntSet[a.set]=(cntSet[a.set]|0)+1;
+    cntSlot[a.slot]=(cntSlot[a.slot]|0)+1;
+    cntStar[a.star]=(cntStar[a.star]|0)+1;
+  }
+  const setKeys=Object.keys(cntSet).sort(function(x,y){
+    const nx=(ART_SETS[x]&&ART_SETS[x].n)||x,ny=(ART_SETS[y]&&ART_SETS[y].n)||y;
+    return (cntSet[y]-cntSet[x])||String(nx).localeCompare(String(ny),'zh-Hans-CN');});
+  const starKeys=Object.keys(cntStar).map(Number).sort(function(x,y){return y-x;});
+  const slotKeys=ART_SLOTS.filter(function(s){return cntSlot[s];});
+  const nmOf=k=>(ART_SETS[k]&&ART_SETS[k].n)||k;
+  let filh='<span class="fk">圣遗物</span>';
+  if(!artHas())filh+='<span class="tagx">未筛选 · 全部 '+arts.length+' 件</span>';
+  else{
+    for(const k of artF.set)filh+='<span class="tagx on" data-afd="set:'+escH(k)+'">'+escH(nmOf(k))+
+      '<i>×'+(cntSet[k]|0)+'</i></span>';
+    for(const s of artF.slot)filh+='<span class="tagx on" data-afd="slot:'+s+'">'+
+      escH(ART_SLOT[s])+'<i>×'+(cntSlot[s]|0)+'</i></span>';
+    for(const v of artF.star)filh+='<span class="tagx on" data-afd="star:'+v+'">'+v+
+      '★<i>×'+(cntStar[v]|0)+'</i></span>';
+    filh+='<span class="tagx">筛出 '+artCount()+' / '+arts.length+' 件</span>';
+    filh+='<span class="fv" data-afz="1">清空</span>';
+  }
+  filh+='<span class="fgrow"></span><span class="fv exp" data-afo="1">'+
+        (artOpen?'收起 ▲':'展开筛选 ▼')+'</span>';
+  if(E.artFil)E.artFil.innerHTML=filh;
+  if(artOpen){
+    if(!artDraft)artDraft={set:artF.set.slice(),slot:artF.slot.slice(),star:artF.star.slice()};
+    const D=artDraft;
+    const box=(title,body)=>'<div class="fgrp"><b>'+title+'</b><div class="fitems">'+body+'</div></div>';
+    const item=(g,v,txt,tot,on)=>'<span class="fitem'+(on?' on':'')+(tot?'':' no')+
+      '" data-afg="'+g+'" data-afv="'+escH(String(v))+'">'+txt+'<i>'+tot+'</i></span>';
+    let gh=box('类型（套装）',setKeys.map(k=>item('set',k,nmOf(k),cntSet[k]|0,
+                    D.set.indexOf(k)>=0)).join('')||'<span class="fitem no">背包里还没有圣遗物</span>');
+    gh+=box('部位',slotKeys.map(s=>item('slot',s,ART_SLOT[s],cntSlot[s]|0,
+                    D.slot.indexOf(s)>=0)).join(''));
+    gh+=box('星级',starKeys.map(v=>item('star',v,v+'★',cntStar[v]|0,
+                    D.star.indexOf(v)>=0)).join(''));
+    gh+='<div class="fops"><span class="fv" data-afall="1">本页全选</span>'+
+        '<span class="fv" data-afn="1">反选</span>'+
+        '<span class="fv" data-afz2="1">全部清空</span>'+
+        '<span class="fv pr" data-aok="1">确定查看</span>'+
+        '<span class="fv" data-acancel="1">取消</span></div>';
+    if(E.artFil2)E.artFil2.innerHTML=gh;
+    E.artFil.classList.add('open');
+  }else{
+    artDraft=null;
+    if(E.artFil2)E.artFil2.innerHTML='';
+    E.artFil.classList.remove('open');
+    if(E.artFil2)E.artFil2.classList.remove('open');
+  }
+  if(E.artFil2)E.artFil2.classList.toggle('open',artOpen);
+  const rows=arts.filter(artPass).sort(function(x,y){
     const ex=artEquipped(x.uid)?0:1,ey=artEquipped(y.uid)?0:1;
     if(ex!==ey)return ex-ey;
     if(y.star!==x.star)return y.star-x.star;
     if(y.lv!==x.lv)return y.lv-x.lv;
     return ART_SLOTS.indexOf(x.slot)-ART_SLOTS.indexOf(y.slot);
   });
-  E.artCount.textContent='共 '+arts.length+' 件'+(artEvict?'（已自动清理过 '+artEvict+' 件最旧的）':'');
+  E.artCount.textContent='共 '+arts.length+' 件'+
+    (artHas()?' · 筛出 '+rows.length+' 件':'')+
+    (artEvict?'（已自动清理过 '+artEvict+' 件最旧的）':'');
   let lh='';
-  if(!rows.length)lh='<div class="bgEmpty"><b>还没有一件圣遗物</b><span>蒙德四座祝圣秘境的宝箱各掉两件套，世界首领必掉一件，野外宝箱有一半几率附带。</span></div>';
+  if(!rows.length)lh='<div class="bgEmpty">'+(arts.length?
+    '<b>这个筛选条件下一件都没有</b><span>点条件带上的「清空」回到全部。</span>':
+    '<b>还没有一件圣遗物</b><span>蒙德四座祝圣秘境的宝箱各掉两件套，世界首领必掉一件，野外宝箱有一半几率附带。</span>')+'</div>';
   for(const a of rows){
     const S=ART_SETS[a.set],worn=artEquipped(a.uid);
     const mine=id&&worn===id;
@@ -23340,7 +23550,7 @@ function renderBag(){
   }
   E.list.innerHTML=h;
   renderArt();          // 圣遗物页签：数据都在 renderBag 一次算完，页签只切显隐
-  renderMountBag(E);    // 坐骑页签：17 只全列出，已拥有的可设为默认
+  renderMountBag(E);    // 坐骑页签：18 只全列出，已拥有的可设为默认
 }
 function renderMountBag(E){
   if(!E.mountSum||!E.mounts)return;
@@ -23390,6 +23600,7 @@ function bagInit(){
           bsum:$('#bgBookSum'),books:$('#bgBooks'),skill:$('#bgSkill'),
           csum:$('#bgCnSum'),cons:$('#bgCn'),
           art:$('#bgArt'),artSlots:$('#bgArtSlots'),artSets:$('#bgArtSets'),
+          artFil:$('#bgArtFil'),artFil2:$('#bgArtFil2'),
           artUp:$('#bgArtUp'),artCount:$('#bgArtCount'),
           mountSum:$('#bgMountSum'),mounts:$('#bgMounts')};
   bagEls.wrap.addEventListener('click',function(e){
@@ -23415,6 +23626,53 @@ function bagInit(){
           if(!k)toast('按现在的星级筛选，没有可以吞的圣遗物');
           renderArt();return;}
         if(n.dataset.adc!==undefined){artFeed={};renderArt();return;}
+        /* 圣遗物筛选：条件带上的标签点一下就摘掉该条件；展开区只改草稿，确定才生效 */
+        if(n.dataset.afd!==undefined){
+          const s=n.dataset.afd,i=s.indexOf(':');
+          const g=s.slice(0,i),v=s.slice(i+1);
+          const arr=artF[g];if(!arr)return;
+          const k=(g==='star')?(+v):v;
+          const j=arr.indexOf(k);
+          if(j>=0)arr.splice(j,1);
+          renderArt();return;
+        }
+        if(n.dataset.afz!==undefined){
+          artF.set.length=0;artF.slot.length=0;artF.star.length=0;renderArt();return;}
+        if(n.dataset.afo!==undefined){artOpen=!artOpen;artDraft=null;renderArt();return;}
+        if(n.dataset.afg!==undefined&&artDraft){
+          const g=n.dataset.afg,v=n.dataset.afv;
+          const arr=g==='star'?artDraft.star:(g==='slot'?artDraft.slot:artDraft.set);
+          artDraftOn(arr,g==='star'?(+v):v);
+          /* 就地改这一个格子：整块重画会把勾选列表的滚动位置顶回去，
+             套装有二十多项，滚到底部点一下就跳回顶部很难受 */
+          n.classList.toggle('on',arr.indexOf(g==='star'?(+v):v)>=0);
+          return;
+        }
+        if(n.dataset.afall!==undefined&&artDraft){
+          artDraft.set=Object.keys(ART_SETS).filter(k=>arts.some(a=>a.set===k));
+          artDraft.slot=ART_SLOTS.filter(s=>arts.some(a=>a.slot===s));
+          artDraft.star=[5,4,3,2,1].filter(v=>arts.some(a=>a.star===v));
+          renderArt();return;
+        }
+        if(n.dataset.afn!==undefined&&artDraft){
+          const all=Object.keys(ART_SETS).filter(k=>arts.some(a=>a.set===k));
+          artDraft.set=all.filter(k=>artDraft.set.indexOf(k)<0);
+          const sl=ART_SLOTS.filter(s=>arts.some(a=>a.slot===s));
+          artDraft.slot=sl.filter(k=>artDraft.slot.indexOf(k)<0);
+          const st=[5,4,3,2,1].filter(v=>arts.some(a=>a.star===v));
+          artDraft.star=st.filter(v=>artDraft.star.indexOf(v)<0);
+          renderArt();return;
+        }
+        if(n.dataset.afz2!==undefined&&artDraft){
+          artDraft.set.length=0;artDraft.slot.length=0;artDraft.star.length=0;renderArt();return;}
+        if(n.dataset.aok!==undefined){
+          if(artDraft){
+            artF.set=artDraft.set.slice();artF.slot=artDraft.slot.slice();
+            artF.star=artDraft.star.slice();
+          }
+          artOpen=false;artDraft=null;renderArt();return;
+        }
+        if(n.dataset.acancel!==undefined){artOpen=false;artDraft=null;renderArt();return;}
         if(n.dataset.alock!==undefined){
           const x=artUid(+n.dataset.alock);
           if(x){x.lock=x.lock?0:1;renderArt();saveGame();}
@@ -23424,6 +23682,16 @@ function bagInit(){
     }
   });
   $('#btnBagClose').addEventListener('click',closeBag);
+  /* 收缩态的条件带是横向排的一行：鼠标滚轮在这里改判成左右滚，
+     不然滚轮会被外层背包面板拿走去滚整页。手机端本来就是原生左右滑。 */
+  const af=bagEls.artFil;
+  if(af)af.addEventListener('wheel',function(e){
+    if(!af.scrollWidth||af.scrollWidth<=af.clientWidth+2)return;
+    const d=Math.abs(e.deltaY)>=Math.abs(e.deltaX)?e.deltaY:e.deltaX;
+    if(!d)return;
+    e.preventDefault();
+    af.scrollLeft+=d;
+  },{passive:false});
   return bagEls;
 }
 /* 技能 / 命座 / 圣遗物 / 武器 / 经验书五个子页：只切显隐，数据都由 renderBag 一次算好 */
@@ -23806,7 +24074,7 @@ const CN={
 /* 160 原石一抽：5★ 0.1%（80 抽内必出）、4★ 10%（10 抽内必出），剩下都是 3★。
    保底是独立的两条计数：出了 5★ 同时清空两条，只出 4★ 只清 4★ 那条。 */
 /* ============ 坐骑 ============
-   17 只坐骑：五星 9 只（常驻 6 / 限定 3）、四星 8 只。
+   18 只坐骑：五星 9 只（常驻 6 / 限定 3）、四星 9 只。
    fly=会飞（不耗体力，空格上升、松手下落悬停）；water=能浮在水面且不触发游泳；
    rocket=火神的摩托车（长按空格起跳滑翔，不耗体力）；waterSpeed=水上的速度倍率，
    五星水上坐骑一律 1（不减速），四星 0.85~0.9。speed 是陆行/飞行的基础倍率。
@@ -23845,6 +24113,8 @@ const MOUNTS={
    desc:'四星 · 水上坐骑 · 可以浮在水面航行，不触发游泳。'},
  md_moto:{n:'摩托车',star:4,pool:'std',speed:1.58,seat:0.92,pose:'sit',
    desc:'四星 · 陆行 · 简单的街车，车轮会跟着速度转动。'},
+ md_porsche:{n:'保时捷 918 Spyder',star:4,pool:'std',speed:1.66,seat:0.66,pose:'sit',
+   desc:'四星 · 陆行 · 银色敞篷混动超跑：四轮跟着速度转，绿色风挡与后尾翼，人是坐在座舱里的。'},
  md_firebike:{n:'火神的摩托车',star:5,pool:'up',rocket:1,speed:1.82,seat:0.92,pose:'sit',
    fx:[1.0,0.46,0.16],fxMode:'flame',ab:'长按空格滑翔 · 火翼',
    desc:'限定五星 · 长按空格起跳并滑翔（高度为二段跳的 2 倍），不消耗体力；起跳与滑翔展开火翼。'},
@@ -23857,11 +24127,12 @@ const MOUNTS={
    desc:'四星 · 水上坐骑 · 头顶灯笼发光，能在水面游动。'}
 };
 const MOUNT_ALL=['md_durin','md_hat','md_shuttle','md_plate','md_chair','md_whale','md_tiger',
-  'md_silver','md_angel','md_heli','md_guoba','md_yacht','md_moto','md_firebike',
+  'md_silver','md_angel','md_heli','md_guoba','md_yacht','md_moto','md_porsche','md_firebike',
   'md_shark','md_dragon','md_angler'];
 const MOUNT_STD5=['md_durin','md_plate','md_whale','md_tiger','md_angel','md_shark'];
 const MOUNT_UP=['md_hat','md_shuttle','md_firebike'];
-const MOUNT_4=['md_chair','md_silver','md_heli','md_guoba','md_yacht','md_moto','md_dragon','md_angler'];
+const MOUNT_4=['md_chair','md_silver','md_heli','md_guoba','md_yacht','md_moto','md_porsche',
+  'md_dragon','md_angler'];
 let mountOwn={},mountSel='';
 function mountOwned(id){return !!mountOwn[id]||isAdm()}
 function mountAbility(m){
@@ -23876,7 +24147,7 @@ function mountAbility(m){
 function mountPoolName(id){return (MOUNTS[id]||{}).n||id}
 
 /* ============ 坐骑模型 ============
-   17 只全部用 GEO 原语拼，根节点原点落在坐骑"脚底/水面基准"，角色按 MOUNTS.seat
+   18 只全部用 GEO 原语拼，根节点原点落在坐骑"脚底/水面基准"，角色按 MOUNTS.seat
    抬到鞍座上。动画件统一塞进 root.userData.anim，由 updateMountVisual 每帧驱动。 */
 const mtModels={};
 function mtP(p,geo,col,x,y,z,sx,sy,sz,rx,ry,rz){
@@ -24182,6 +24453,56 @@ function buildMount(id){
       for(let i=0;i<3;i++)
         mtP(root,GEO.box,[1,0.55,0.16],0,0.66-i*0.02,0.1+i*0.3,0.52,0.03,0.22).emissive=0.6;
       A.bob=true;
+    }
+  }else if(id==='md_porsche'){
+    /* 银色敞篷混动超跑：车头朝 -z，四个轮子内径压在地面（y=0）上 */
+    const sl=[0.80,0.83,0.88],sl2=[0.62,0.66,0.72],blk=[0.11,0.11,0.14];
+    const glass=[0.34,0.60,0.54];
+    mtP(root,GEO.box,sl,0,0.44,0,1.62,0.46,3.70);
+    mtP(root,GEO.box,blk,0,0.22,0,1.34,0.22,3.30);
+    mtP(root,GEO.box,sl,0,0.36,-2.02,1.30,0.30,0.72,0.10);
+    mtP(root,GEO.sphere,sl,0,0.34,-2.36,1.00,0.22,0.52);
+    for(const s of[-1,1]){
+      mtP(root,GEO.sphere,sl,s*0.80,0.52,-1.30,0.46,0.36,1.10);
+      mtP(root,GEO.sphere,sl,s*0.84,0.58,1.30,0.54,0.44,1.42);
+      mtP(root,GEO.box,blk,s*0.86,0.44,0.78,0.08,0.28,0.74);
+      mtP(root,GEO.box,sl2,s*0.74,0.30,-0.20,0.16,0.12,1.90);
+    }
+    mtP(root,GEO.box,blk,0,0.74,0.18,1.04,0.34,1.32);
+    mtP(root,GEO.box,[0.20,0.19,0.24],0,0.94,0.78,0.88,0.44,0.16,-0.16);
+    for(const s of[-1,1])
+      mtP(root,GEO.sphere,sl2,s*0.30,1.06,0.98,0.24,0.20,0.24);
+    const ws=mtP(root,GEO.box,glass,0,1.00,-0.60,1.02,0.36,0.10,-0.62);
+    ws.alpha=0.62;ws.emissive=0.12;
+    for(const s of[-1,1]){
+      const sw=mtP(root,GEO.box,glass,s*0.56,0.86,-0.16,0.06,0.24,0.72,-0.10);
+      sw.alpha=0.5;
+    }
+    for(const s of[-1,1]){
+      const hl=mtP(root,GEO.sphere,[1.0,0.97,0.82],s*0.56,0.50,-2.20,0.36,0.16,0.22);
+      hl.glow=1;hl.emissive=1.1;
+      mtP(root,GEO.box,sl,s*0.72,0.92,-0.56,0.10,0.06,0.20);
+      mtP(root,GEO.cylinder,sl2,s*0.78,0.92,-0.44,0.03,0.16,0.03,0,0,Math.PI/2);
+    }
+    const tl=mtP(root,GEO.box,[1.0,0.20,0.16],0,0.64,2.08,1.20,0.10,0.08);
+    tl.glow=0.9;tl.emissive=0.9;
+    mtP(root,GEO.box,sl,0,0.70,1.62,1.32,0.16,0.92);
+    for(const s of[-1,1]){
+      mtP(root,GEO.box,blk,s*0.62,1.10,2.00,0.10,0.30,0.12);
+      mtP(root,GEO.cylinder,[0.30,0.30,0.34],s*0.34,0.42,2.24,0.11,0.20,0.11,Math.PI/2);
+    }
+    const wg=mtP(root,GEO.box,sl,0,1.24,2.06,1.48,0.07,0.44,0.12);
+    wg.emissive=0.06;
+    for(const z of[-1.30,1.34]){
+      const rear=z>0;
+      for(const s of[-1,1]){
+        const wh=mtP(root,GEO.cylinder,[0.06,0.06,0.08],s*(rear?0.86:0.82),rear?0.40:0.35,z,
+                     rear?0.80:0.70,rear?0.34:0.26,rear?0.80:0.70,0,0,Math.PI/2);
+        wh.glow=0.06;
+        mtP(root,GEO.cylinder,sl2,s*(rear?0.86:0.82),rear?0.40:0.35,z,
+            (rear?0.80:0.70)*0.52,(rear?0.34:0.26)*1.06,(rear?0.80:0.70)*0.52,0,0,Math.PI/2);
+        A.wheels=A.wheels||[];A.wheels.push(wh);
+      }
     }
   }else if(id==='md_shark'){
     mtP(root,GEO.sphere,[0.34,0.48,0.62],0,0.5,0.1,0.78,0.48,1.75);
@@ -24516,6 +24837,40 @@ function refineMount(root,id,A){
       for(let i=0;i<3;i++)
         mtP(root,GEO.box,[1,0.55,0.14],0,0.72+i*0.02,-0.1+i*0.3,0.5,0.03,0.2).emissive=0.7;
     }
+  }else if(id==='md_porsche'){
+    /* 细化：六辐轮圈、卡钳、前唇、侧裙、扩散器、尾翼端板与座舱方向盘 */
+    A.wheels=A.wheels||[];
+    for(const w of[[0.82,-1.30,0.35,0.26],[-0.82,-1.30,0.35,0.26],
+                   [0.86,1.34,0.40,0.34],[-0.86,1.34,0.40,0.34]]){
+      const x=w[0],z=w[1],cy=w[2],th=w[3];
+      for(let i=0;i<3;i++){
+        const sp=mtP(root,GEO.box,[0.72,0.74,0.78],x,cy,z,th*0.92,0.60,th*0.20,0,0,i*Math.PI/3);
+        sp.glow=0.08;A.wheels.push(sp);
+      }
+      const hub=mtP(root,GEO.cylinder,gold,x,cy,z,0.14,th*1.12,0.14,0,0,Math.PI/2);
+      hub.glow=0.1;A.wheels.push(hub);
+      mtP(root,GEO.box,[0.92,0.36,0.20],x+(x>0?th*0.42:-th*0.42),cy-0.06,z-0.02,
+          0.06,0.16,0.20);
+      mtP(root,GEO.box,[0.10,0.10,0.12],x,cy+0.42,z,0.30,0.06,0.86);
+    }
+    mtP(root,GEO.box,[0.10,0.10,0.13],0,0.16,-2.36,1.56,0.07,0.46);
+    mtP(root,GEO.box,[0.10,0.10,0.13],0,0.20,2.28,1.44,0.08,0.30);
+    for(const s of[-1,1])
+      mtP(root,GEO.box,[0.10,0.10,0.13],s*0.90,0.20,-0.10,0.10,0.10,2.30);
+    for(let i=0;i<4;i++)
+      mtP(root,GEO.box,[0.14,0.14,0.17],(i-1.5)*0.34,0.26,2.36,0.09,0.16,0.42);
+    for(const s of[-1,1]){
+      mtP(root,GEO.box,[0.16,0.16,0.19],s*0.74,1.24,2.06,0.06,0.30,0.46);
+      mtP(root,GEO.box,silver,s*0.74,1.38,2.06,0.10,0.05,0.50);
+    }
+    for(let i=0;i<3;i++)
+      mtP(root,GEO.box,[0.20,0.20,0.24],0,0.78+i*0.005,1.90-i*0.20,1.10-i*0.10,0.05,0.13);
+    mtP(root,GEO.ring,[0.30,0.30,0.34],0,0.96,-0.30,0.34,0.34,0.34,-1.15,0,0);
+    mtP(root,GEO.cylinder,[0.20,0.19,0.24],0,0.96,-0.24,0.06,0.10,0.06,1.15,0,0);
+    mtP(root,GEO.box,gold,0,0.44,-2.44,0.20,0.08,0.06);
+    for(const s of[-1,1])
+      mtP(root,GEO.box,[0.36,0.62,0.56],s*0.20,0.68,-0.06,0.05,0.06,1.30).emissive=0.18;
+    mtP(root,GEO.box,[0.14,0.14,0.17],0,1.16,0.30,0.96,0.05,0.90);
   }else if(id==='md_shark'){
     for(const s of [-1,1]){
       for(let i=0;i<3;i++)
@@ -24897,7 +25252,7 @@ function updateMountVisual(dt){
   if(m.water)bob=Math.sin(gameTime*1.7)*0.07;
   else if(m.fly)bob=Math.sin(gameTime*2.0)*0.05;
   else if(player.mountId==='md_heli'||player.mountId==='md_firebike'||
-          player.mountId==='md_moto'||player.mountId==='md_guoba')
+          player.mountId==='md_moto'||player.mountId==='md_porsche'||player.mountId==='md_guoba')
     bob=Math.sin(gameTime*5.2)*0.02;
   player.mountBob=bob;
   const rootY=player.pos[1]-m.seat+bob;
@@ -25732,6 +26087,11 @@ function gemTxt(){return isAdm()?'∞':gem}
 function moraTxt(){return isAdm()?'∞':mora}
 function uiGem(){const e=$('#uiGem');if(e)e.textContent=gemTxt();}
 function uiMora(){const e=$('#uiMora');if(e)e.textContent=moraTxt();}
+/* 顶栏的冒险 / 世界等级：世界等级后面用括号标出已解锁的上限，方便知道还能不能往上调 */
+function uiAdv(){
+  const a=$('#uiAdv');if(a)a.textContent=advLv;
+  const w=$('#uiWl');if(w)w.textContent=worldLv+(wlMax>worldLv?(' / '+wlMax):'');
+}
 /* 幂等：只补"缺的那部分"，管理员自己升过的级、点过的命座不会被冲掉 */
 function admGrant(){
   if(!isAdm())return '';
@@ -26022,7 +26382,8 @@ function audRun(){
        (player.party.length+' 人在场 · 预设 '+TEAM_PRESETS.length+' 队 · charState '+Object.keys(charState).length+' 档'));}
   /* 14 · 界面接线：脚本要的元素在不在（改过 id 之后最容易静默失灵） */
   {const need=['#c','#ui','#gate','#party','#skills','#mapWrap','#hbWrap','#auditWrap','#kbAudit',
-               '#admWrap','#nickIn','#uiMora','#uiGem','#bossBar','#miniMap','#toast','#hint','#grants','#aim','#dmgLayer'];
+               '#admWrap','#nickIn','#uiMora','#uiGem','#bossBar','#miniMap','#toast','#hint','#grants','#aim','#dmgLayer',
+               '#hubWrap','#hubBtn','#kbHub','#uiAdv','#uiWl','#bgArtFil','#bgArtFil2'];
    const gone=need.filter(s=>!$(s));
    row('界面接线',gone.length?2:0,gone.length?('缺元素 '+gone.join(' ')):need.length+' 个关键节点都在');}
   return {R:R,ms:Math.max(1,Math.round(performance.now()-t0))};
@@ -26136,7 +26497,10 @@ function saveGame(){
       ab:[abyWk|0,abyCl.slice(),abyGot.slice()],
       /* 坐骑：已拥有 id + 默认坐骑；老档没有这两项就是一只都没有 */
       mt:Object.keys(mountOwn).filter(function(id){return !!MOUNTS[id];}),
-      mts:mountSel||''}));
+      mts:mountSel||'',
+      /* 冒险等级 / 世界等级与突破任务：老档没这两项就是 1 级冒险、0 级世界 */
+      adv:[advLv|0,advExp|0],
+      wl:[worldLv|0,wlMax|0,btState|0,btBoss||'']}));
     if(!NICK){                       // 老键位只在没起名字时清理，别把别人没搬完的档案删了
       LS.removeItem(MID_KEY);
       LS.removeItem(OLD_KEY);
@@ -26224,6 +26588,22 @@ function loadGame(){
   if(d.mt)for(const id of d.mt)if(MOUNTS[id])mountOwn[id]=1;
   if(d.mts&&MOUNTS[d.mts]&&mountOwn[d.mts])mountSel=d.mts;
   if(!mountSel)mountSel=firstOwnedMount();
+  /* 冒险 / 世界等级：老档没这两项就 1 级冒险、0 级世界，突破任务重新按等级判定 */
+  advLv=1;advExp=0;worldLv=0;wlMax=0;btState=0;btBoss='';
+  if(d.adv&&d.adv.length>=2){
+    advLv=clamp(d.adv[0]|0,1,ADV_CAP);
+    advExp=Math.max(0,d.adv[1]|0);
+    if(advLv>=ADV_CAP)advExp=0;
+  }
+  if(d.wl&&d.wl.length>=2){
+    wlMax=clamp(d.wl[1]|0,0,WL_CAP);
+    worldLv=clamp(d.wl[0]|0,0,wlMax);
+    btState=clamp((d.wl[2]|0),0,3);
+    btBoss=(d.wl[3]&&btFind(d.wl[3]))?String(d.wl[3]):'';
+    if(btState>=2&&!btBoss)btState=1;      // 指定对象已经不存在了，退回"可接取"
+  }
+  btRefresh();
+  uiAdv();
   bag.length=0;
   for(const a of (d.it||[])){
     if(!a||a.length<11)continue;
@@ -27126,6 +27506,289 @@ const enemies=[];
 const enemyRoot=new Node();scene.add(enemyRoot);
 let killCount=0,mora=0,gem=0,balls=0;   // balls：相遇之缘，祈愿先扣它
 let fate=0;                             // fate：纠缠之缘，精英怪的掉落，祈愿第二顺位
+/* ---- 冒险等级的入账与突破资格 ----
+   经验只从"内容"来：宝箱 / boss / 副本 / 精英 / 地脉之花 / 深渊，刷小怪不给，
+   所以升级节奏由玩家探索了多少内容决定，而不是站场砍多久。 */
+function grantAdv(n,why){
+  n=Math.round(n||0);
+  if(!(n>0))return;
+  if(advLv>=ADV_CAP){advExp=0;return;}
+  advExp+=n;
+  let up=0;
+  while(advLv<ADV_CAP&&advExp>=advNeed(advLv)){advExp-=advNeed(advLv);advLv++;up++;}
+  if(advLv>=ADV_CAP)advExp=0;
+  if(up){
+    btRefresh();
+    bigMsg('冒险等级 '+advLv);
+    toast('冒险等级升到 '+advLv+' 级'+(why?'（'+why+'）':'')+' · '+advGateTip());
+    if(typeof renderHub==='function'&&hubOpen)renderHub();
+  }
+  uiAdv();
+  saveGame();
+}
+function advGateTip(){
+  if(wlMax>=WL_CAP)return '世界等级已封顶';
+  const need=(wlMax+1)*10;
+  if(advLv>=need)return '可以接取世界等级突破任务了（Esc 角色面板）';
+  return '再升 '+(need-advLv)+' 级可接取世界等级突破任务';
+}
+/* 够格了就把状态推到"可接取"，已经在打的任务不动 */
+function btRefresh(){
+  if(wlMax>=WL_CAP){if(btState<2)btState=0;return;}
+  if(btState===0&&advLv>=(wlMax+1)*10)btState=1;
+}
+/* ---- 世界等级调节：随时可降，立即作用于场上所有怪与 boss ---- */
+function wlSet(n){
+  n=clamp(n|0,0,wlMax);
+  if(n===worldLv)return false;
+  worldLv=n;
+  for(const e of enemies)if(e.alive)wlApply(e);
+  for(const b of wlLive())if(b&&b.alive)wlApply(b);
+  toast('世界等级 '+n+' · 怪物血量 ×'+(1+n)+'、攻击 ×'+(1+0.2*n).toFixed(2)+
+        ' · 掉落同步');
+  uiAdv();
+  saveGame();
+  return true;
+}
+function wlLive(){
+  return [boss,bossWolf,bossHypo,bossVine,bossPyro,bossGeo,bossAzho,qiuBoss];
+}
+/* ---- 突破任务：随机指定一只首领（天理除外），重生冷却中的不参与抽签 ---- */
+function btPool(){
+  const P=[];
+  for(const b of WB_BOSSES){
+    const st=wbRT[b.id];
+    P.push({id:'bt_'+b.id,name:b.name,where:b.title||'提瓦特',
+            anchor:'wb_'+b.id,cd:!!(st&&st.t>0)});
+  }
+  const one=(id,name,where,anchor,t)=>P.push({id,name,where,anchor,cd:t>0});
+  one('bt_dvalin','特瓦林','风龙废墟 · 风魔龙擂台','lair',bossRespawnT);
+  one('bt_wolf','北风狼王','奔狼领','wolf',wolfRespawnT);
+  one('bt_hypo','无相之雷','千风神殿','hypostasis',hypoRespawnT);
+  one('bt_vine','极冻树','冻龙谷','regisvine',vineRespawnT);
+  one('bt_pyro','爆炎树','燼火之谷','pyrovalley',pyroRespawnT);
+  one('bt_geo','无相之岩','南天海隅','seaIsle',geoRespawnT);
+  one('bt_azho','若陀龙王','伏龙之地','azho',azhoRespawnT);
+  one('bt_qiu','丘丘大王','丘丘现代城 · 市政厅','qiuarena',qiuBossRespawnT);
+  return P;
+}
+function btFind(id){
+  if(!id)return null;
+  for(const b of btPool())if(b.id===id)return b;
+  return null;
+}
+function btCur(){return btFind(btBoss);}
+function btPick(){
+  if(btState!==1){toast(btState>=2?'突破任务已经接了：去打指定的首领':'冒险等级还不够接取突破任务');return;}
+  const pool=btPool().filter(b=>!b.cd);
+  if(!pool.length){toast('所有首领都还在重生冷却里 · 稍等几十秒再来接');return;}
+  const b=pool[rndi(0,pool.length-1)];
+  btBoss=b.id;btState=2;
+  bigMsg('突破目标 · '+b.name);
+  toast('突破任务：击败 '+b.name+'（'+b.where+'）· 打完回角色面板交付');
+  saveGame();
+}
+/* 各只首领的死亡处都会调它；只有正好是当前目标时才推进任务 */
+function btNote(id){
+  if(btState!==2||btBoss!==id)return;
+  btState=3;
+  bigMsg('突破目标已讨灭');
+  toast('突破目标达成 · 打开角色面板（Esc）领取 1600 原石 + 10 相遇之缘 + 100 万摩拉');
+  saveGame();
+}
+function btAbandon(){
+  if(btState<2){toast('现在没有进行中的突破任务');return;}
+  btState=1;btBoss='';
+  toast('已放弃这次指定 · 可以再重新接取一次');
+  saveGame();
+}
+function btDeliver(){
+  if(btState!==3){toast('还没有打完指定的首领，打完了才能交付');return;}
+  const b=btCur();
+  gem+=1600;uiGem();grantCash(0,1600,'世界等级突破');
+  mora+=1000000;uiMora();grantCash(1000000,0,'世界等级突破');
+  balls+=10;syncBallUI();grantNote('相遇之缘',10,5,'世界等级突破','缘');
+  wlMax=Math.min(WL_CAP,wlMax+1);
+  btState=0;btBoss='';
+  worldLv=wlMax;                       // 突破成功即按新上限开档，之后可以在面板往下调
+  for(const e of enemies)if(e.alive)wlApply(e);
+  for(const x of wlLive())if(x&&x.alive)wlApply(x);
+  uiAdv();
+  bigMsg('世界等级 '+wlMax);
+  toast('世界等级提升到 '+wlMax+' · 怪物血量 ×'+(1+wlMax)+'、攻击 ×'+(1+0.2*wlMax).toFixed(2)+
+        '，掉落同步上浮');
+  saveGame();
+}
+/* 大地图 / 小地图与 boss 血条都要按这个判断"当前是不是突破目标" */
+function btTargetOf(e){
+  if(!e||btState!==2)return '';
+  const b=btCur();
+  if(!b)return '';
+  if(e.wb&&('bt_'+e.wb.id)===b.id)return b.name;
+  if(e.type==='azhdaha'&&b.id==='bt_azho')return b.name;
+  if(e.qiuBoss&&b.id==='bt_qiu')return b.name;
+  /* 六只区域首领是各自的类，不是 Enemy，只能按对象身份认 */
+  const one=[[boss,'bt_dvalin'],[bossWolf,'bt_wolf'],[bossHypo,'bt_hypo'],
+             [bossVine,'bt_vine'],[bossPyro,'bt_pyro'],[bossGeo,'bt_geo']];
+  for(const p of one)if(p[0]===e&&p[1]===b.id)return b.name;
+  return '';
+}
+/* ============ 角色总面板：世界等级 + 突破任务 + 所有功能按钮 ============
+   PC 用 Esc 开合，手机端点左上角头像。它自己也算模态：开着就不吃游戏操作。 */
+function hubEl(){return document.getElementById('hubWrap');}
+function openHub(){
+  if(hubOpen||!playing)return;
+  if(mapOpen)closeMap();
+  if(bagOpen)closeBag();
+  if(wishOpen)closeWish();
+  if(hbOpen)closeHB();
+  if(teamEditOpen)closeTeamEditor(false);
+  if(chatOpen)closeChat();
+  hubOpen=true;
+  keys['KeyW']=keys['KeyA']=keys['KeyS']=keys['KeyD']=false;
+  mouse.l=false;mouse.r=false;
+  cancelAiming();resetTransient();
+  if(locked)document.exitPointerLock();
+  renderHub();
+  hubEl().classList.add('on');
+}
+function closeHub(){
+  if(!hubOpen)return;
+  hubOpen=false;
+  hubEl().classList.remove('on');
+  tryLock(260);
+}
+function hubGo(fn){
+  const P={
+    team:function(){openTeamEditor();},
+    bag:function(){openBag();},
+    wish:function(){openWish();},
+    book:function(){openHB();},
+    map:function(){openMap();},
+    net:function(){openNet();},
+    chat:function(){openChat();},
+    mount:function(){toggleMount();},
+    ui:function(){cycleUiMode();},
+    audit:function(){openAud();}
+  };
+  const f=P[fn];
+  if(!f)return;
+  closeHub();
+  f();
+}
+function renderHub(){
+  if(!hubOpen)return;
+  const sub=document.getElementById('hubSub');
+  if(sub)sub.innerHTML='旅行者 <b style="color:#ffe9b0">'+escH(NICK||'（还没起名）')+'</b>'+
+    (NICK?'（Lv'+advLv+'）':'')+' · 世界等级 '+worldLv+' / 上限 '+wlMax+
+    ' · 怪物血量 ×'+(1+worldLv)+' · 攻击 ×'+(1+0.2*worldLv).toFixed(2);
+  /* 冒险等级：一条进度 + 下一级要多少经验，以及离突破资格还差几级 */
+  const need=advLv>=ADV_CAP?0:advNeed(advLv);
+  const pct=advLv>=ADV_CAP?100:clamp(advExp/need*100,0,100);
+  const ad=document.getElementById('hubAdv');
+  if(ad)ad.innerHTML='<div class="hubTxt" style="font-size:20px;color:#ffe9b0;letter-spacing:1px">'+
+      'Lv '+advLv+' <span style="font-size:11px;color:#8b939c">/ '+ADV_CAP+'</span></div>'+
+      '<div class="hubBar"><i style="width:'+pct.toFixed(1)+'%"></i></div>'+
+      '<div class="hubTxt">'+(advLv>=ADV_CAP?'冒险等级已经到顶':
+        ('本级经验 '+advExp+' / '+need))+'<br>'+advGateTip()+
+        '<br>经验来源：宝箱 · 世界与周本 boss · 祝圣秘境 · 精英怪 · 地脉之花 · 深渊（小怪不给）</div>';
+  /* 世界等级：0..8 一排，没突破到的锁住，随时可以往回调低 */
+  let wl='<div class="hubLv">';
+  for(let i=0;i<=WL_CAP;i++)
+    wl+='<b data-hwl="'+i+'" class="'+(i===worldLv?'on':'')+(i>wlMax?' no':'')+'">'+i+'</b>';
+  wl+='</div><div class="hubTxt">每级：怪物血量 +100%、攻击 +20%，掉落与冒险经验 +15%。'+
+      '当前 ×'+(1+worldLv)+' 血 / ×'+(1+0.2*worldLv).toFixed(2)+' 攻。<br>'+
+      '点任意已解锁档位即可切换（含调低），立刻对场上所有怪生效。天理不吃这套加成。</div>';
+  const wE=document.getElementById('hubWl');
+  if(wE)wE.innerHTML=wl;
+  /* 突破任务：可接取 / 待击杀 / 待交付 三态 */
+  let bt='';
+  if(btState===0){
+    bt='<div class="hubTxt">'+(wlMax>=WL_CAP?'世界等级已经打到 '+WL_CAP+' 级，没有更高的突破任务了。':
+       ('冒险等级到 '+(wlMax+1)*10+' 级后可以接取第 '+(wlMax+1)+' 次突破任务。'))+'</div>';
+  }else if(btState===1){
+    bt='<div class="hubTxt">冒险等级够了 · 可以接取第 '+(wlMax+1)+' 次突破任务。系统会在所有首领里随机指定一只（正在重生冷却中的不会被抽到）。</div>'+
+       '<div style="margin-top:9px"><span class="hubBtn pr" data-hbt="pick">接取突破任务</span></div>';
+  }else{
+    const b=btCur();
+    if(!b){bt='<div class="hubTxt">指定的首领已经不在了 · 重新接取一次。</div>'+
+        '<div style="margin-top:9px"><span class="hubBtn" data-hbt="abandon">重新接取</span></div>';}
+    else if(btState===2){
+      bt='<div class="hubTxt">击败 <b style="color:#ffe9b0">'+escH(b.name)+'</b>（'+escH(b.where)+'）<br>'+
+         '它的血条与大地图标记上会写着「突破目标」。</div>'+
+         '<div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap">'+
+         '<span class="hubBtn" data-hgo="'+escH(b.anchor)+'">传送到场地</span>'+
+         '<span class="hubBtn off" data-hbt="0">尚未讨灭</span>'+
+         '<span class="hubBtn" data-hbt="abandon">换一个 / 放弃</span></div>';
+    }else{
+      bt='<div class="hubTxt"><b style="color:#8fe3a8">'+escH(b.name)+'</b> 已被讨灭 · 可以交付。</div>'+
+         '<div style="margin-top:9px"><span class="hubBtn pr" data-hbt="deliver">'+
+         '交付 · 1600 原石 + 10 相遇之缘 + 100 万摩拉 · 世界等级 → '+(wlMax+1)+'</span></div>';
+    }
+  }
+  const bE=document.getElementById('hubBt');
+  if(bE)bE.innerHTML=bt;
+  /* 功能按钮：手机端唯一入口，PC 上也省得记键位 */
+  const F=[['team','👥 编队','T'],['bag','🎒 背包','B'],['wish','🌟 祈愿','C'],
+           ['book','📖 冒险书','Y'],['map','🗺 大地图','M'],['net','🔗 联机','O'],
+           ['chat','💬 聊天','回车'],['mount','🐎 坐骑','R'],['ui','🖱 操作模式','']];
+  let fh='';
+  for(const f of F)
+    fh+='<span class="hubBtn" data-hfn="'+f[0]+'">'+f[1]+
+        (f[2]?'<span class="hubTag">'+f[2]+'</span>':'')+'</span>';
+  if(isAdm())fh+='<span class="hubBtn" data-hfn="audit">🧪 自检<span class="hubTag">管理员</span></span>';
+  const fE=document.getElementById('hubFunc');
+  if(fE)fE.innerHTML=fh;
+}
+function hubInit(){
+  const w=hubEl();
+  if(!w||w.dataset.on)return;
+  w.dataset.on='1';
+  w.addEventListener('click',function(e){
+    let n=e.target;
+    while(n&&n!==w){
+      if(n.dataset){
+        if(n.dataset.hwl!==undefined){
+          const v=+n.dataset.hwl;
+          if(v>wlMax){toast('世界等级 '+v+' 还没解锁 · 先做突破任务');return;}
+          wlSet(v);renderHub();return;
+        }
+        if(n.dataset.hbt!==undefined){
+          const k=n.dataset.hbt;
+          if(k==='pick')btPick();else if(k==='deliver')btDeliver();
+          else if(k==='abandon')btAbandon();
+          renderHub();return;
+        }
+        if(n.dataset.hgo!==undefined){
+          const id=n.dataset.hgo;
+          for(const t of TELEPORTS){
+            if(t.id!==id)continue;
+            closeHub();doTeleport(t);return;
+          }
+          toast('找不到这处首领的传送锚点 · 打开大地图手动选');return;
+        }
+        if(n.dataset.hfn!==undefined){hubGo(n.dataset.hfn);return;}
+      }
+      if(n===document.getElementById('btnHubClose')){closeHub();return;}
+      n=n.parentNode;
+    }
+    if(e.target===w)closeHub();          // 点面板外的黑边也关
+  });
+  document.getElementById('hubBtn').addEventListener('click',function(e){
+    e.stopPropagation();hubOpen?closeHub():openHub();});
+  const kb=document.getElementById('kbHub');
+  if(kb)kb.addEventListener('click',function(){hubOpen?closeHub():openHub();});
+  /* 小地图整块可点：点一下直接开大地图（PC 与手机端都是这条） */
+  const mw=document.getElementById('miniWrap');
+  if(mw){
+    mw.addEventListener('click',function(e){
+      e.stopPropagation();
+      if(modalOpen()||!playing)return;
+      openMap();
+    });
+    mw.title='点击打开大地图';
+  }
+}
 function Enemy(typeKey,x,z){
   const t=ENEMY_TYPES[typeKey];
   this.type=typeKey;this.def=t;this.name=t.name;
@@ -27189,6 +27852,9 @@ function Enemy(typeKey,x,z){
   const sr=this.radius*(this.wb?1.7:(this.isBig?1.6:1.3));
   this.shadow.setScale(sr,1,sr);
   scene.add(this.shadow);
+  /* 世界等级：基础血/攻先记在 baseHp/baseAtk 上，之后调档只按倍率重算，不会越调越漂。
+     markElite 一类"构造后再放大"的地方要顺手把 base 一起放大。 */
+  wlApply(this);
 }
 Enemy.prototype.updateShadow=function(){
   const s=this.shadow;
@@ -30118,6 +30784,8 @@ Enemy.prototype.markElite=function(){
   this.name='精英·'+this.name;
   this.hpMax=Math.round(this.hpMax*ELITE_HP);this.hp=this.hpMax;
   this.atk=Math.round(this.atk*ELITE_ATK);
+  /* 精英的放大要写进世界等级的基准里，否则之后一调档就把精英加成冲掉 */
+  if(this.baseHp!==undefined)this.baseHp=Math.round(this.baseHp*ELITE_HP);
   this.radius=this.radius*ELITE_SCALE;
   this.speed=this.speed*0.82;                         // 大了笨一点，前摇看得见，好躲
   this.atkCd=rnd(1.6,2.8);
@@ -30203,6 +30871,7 @@ Enemy.prototype.die=function(){
   /* 精英怪：一定给一颗纠缠之缘，另外炸一圈紫气，讨灭的瞬间要有排面 */
   if(this.elite){
     grantFate(1,'击杀 '+this.name);
+    grantAdv(60,'讨灭精英 '+this.name);
     fxRing([this.pos[0],this.pos[1]+0.2,this.pos[2]],ELITE_TINT.slice(),11,0.95);
     fxParticles([this.pos[0],this.pos[1]+1.3,this.pos[2]],[0.82,0.56,1.0],3.2,26,1.15,true);
     bigMsg('精英讨灭');
@@ -30233,8 +30902,9 @@ Enemy.prototype.die=function(){
     const pad=wb.padR||14;
     const AR=weekly?2:1;
     killCount+=weekly?6:4;$('#uiKill').textContent=killCount;
-    mora+=weekly?6000:2600;uiMora();
-    gem+=weekly?34:16;uiGem();
+    mora+=wlGain(weekly?6000:2600);uiMora();
+    gem+=wlGain(weekly?34:16);uiGem();
+    grantAdv(weekly?700:400,'讨灭 '+wb.name);btNote('bt_'+wb.id);
     for(const m of player.party)m.energy=100;
     const got=grantArts(wb.artSets,AR,weekly?0.7:0.5,wb.name);
     dropWeapon(wb.name,false,weekly?5:(Math.random()<0.3?4:3));
@@ -30256,6 +30926,7 @@ Enemy.prototype.die=function(){
   /* 副本正主：掉落单独给一份排面，秘境的奖励箱由 group.onDeath 在清场后放出 */
   if(this.isDragon){
     toast('若陀龙王伏诛 · 伏龙之地重归死寂'+bossArt('若陀龙王'));
+    grantAdv(500,'讨灭 若陀龙王');btNote('bt_azho');
     fxSphere([this.pos[0],this.pos[1]+2.4,this.pos[2]],[1.0,0.84,0.40],7.0,1.1,0.75);
     fxRing([this.pos[0],this.pos[1]+0.4,this.pos[2]],[1.0,0.80,0.34],20,1.3);
     dropWeapon('若陀龙王',false,5);
@@ -30278,8 +30949,9 @@ Enemy.prototype.die=function(){
     qiuBossSlain++;qiuBossRespawnT=QIU_BOSS_RESPAWN;qiuBoss=null;
     this.barOn=false;showBossBar(false);
     killCount+=8;$('#uiKill').textContent=killCount;
-    mora+=9000;uiMora();
-    gem+=60;uiGem();
+    mora+=wlGain(9000);uiMora();
+    gem+=wlGain(60);uiGem();
+    grantAdv(900,'讨灭 丘丘大王');btNote('bt_qiu');
     for(const m of player.party)m.energy=100;
     grantMat('qiu',2+(Math.random()<0.5?1:0),'丘丘大王');
     const qa=grantArts(null,2,0.8,'丘丘大王');
@@ -30505,6 +31177,7 @@ function BossDvalin(x,z){
   this.name='特瓦林';
   this.isBoss=true;
   this.hpMax=8000;this.hp=this.hpMax;
+  wlApply(this);            // 世界等级：血量按当前档位放大
   this.radius=3.2;
   this.alive=true;this.active=false;
   this.phase=1;
@@ -30582,8 +31255,9 @@ BossDvalin.prototype.die=function(){
   fxParticles([this.pos[0],this.pos[1],this.pos[2]],[0.5,0.9,0.7],8,60,2.0,true);
   /* 深渊抽到的 boss 是投影：死亡演出照做，但奖励、复活计时、宝箱一律不给 */
   if(this.abyss){showBossBar(false);abyBossSlain(this);return;}
-  mora+=3000;uiMora();
-  gem+=20;uiGem();
+  mora+=wlGain(3000);uiMora();
+  gem+=wlGain(20);uiGem();
+  grantAdv(400,'讨灭 特瓦林');btNote('bt_dvalin');
   killCount+=5;$('#uiKill').textContent=killCount;
   for(const m of player.party)m.energy=100;
   bossRespawnT=BOSS_RESPAWN_TIME;
@@ -30830,6 +31504,7 @@ function BossWolf(x,z){
   this.title='奔狼的领主 · 高贵的战鬼';
   this.isBoss=true;
   this.hpMax=9000;this.hp=this.hpMax;
+  wlApply(this);            // 世界等级：血量按当前档位放大
   this.radius=3.0;
   this.alive=true;this.active=false;
   this.phase=1;
@@ -30911,8 +31586,9 @@ BossWolf.prototype.die=function(){
   fxParticles([this.pos[0],this.pos[1]+2,this.pos[2]],[0.86,0.96,1.0],9,64,2.2,true);
   /* 深渊的投影：特效照放，掉落、计时与经验一律不给 */
   if(this.abyss){showBossBar(false);abyBossSlain(this);return;}
-  mora+=4200;uiMora();
-  gem+=25;uiGem();
+  mora+=wlGain(4200);uiMora();
+  gem+=wlGain(25);uiGem();
+  grantAdv(400,'讨灭 北风狼王');btNote('bt_wolf');
   killCount+=6;$('#uiKill').textContent=killCount;
   for(const m of player.party)m.energy=100;
   wolfRespawnT=WOLF_RESPAWN_TIME;
@@ -31238,7 +31914,9 @@ const bossSubEl=$('#bossSub');
 function showBossBar(on,b){
   if(b){
     bossNameEl.textContent=b.name;
-    bossSubEl.textContent=b.title||'';
+    /* 突破目标要在血条上直接写出来，不用回面板确认打的是谁 */
+    const tg=btTargetOf(b);
+    bossSubEl.textContent=(b.title||'')+(tg?'　·　突破目标':'');
   }
   bossBarEl.classList.toggle('on',!!on);
 }
@@ -31269,6 +31947,7 @@ function BossHypostasis(x,z){
   this.title='千风神殿 · 雷元素聚合体';
   this.isBoss=true;
   this.hpMax=7600;this.hp=this.hpMax;
+  wlApply(this);            // 世界等级：血量按当前档位放大
   this.radius=2.3;
   this.alive=true;this.active=false;
   this.phase=1;this.state='sleep';this.stateT=0;
@@ -31388,8 +32067,9 @@ BossHypostasis.prototype.die=function(){
   fxParticles([this.pos[0],this.pos[1],this.pos[2]],[0.86,0.78,1.0],8,54,2.0,true);
   /* 深渊的投影：雷元已经在上面收干净了，这里只截掉奖励 */
   if(this.abyss){showBossBar(false);abyBossSlain(this);return;}
-  mora+=3600;uiMora();
-  gem+=22;uiGem();
+  mora+=wlGain(3600);uiMora();
+  gem+=wlGain(22);uiGem();
+  grantAdv(400,'讨灭 无相之雷');btNote('bt_hypo');
   killCount+=4;$('#uiKill').textContent=killCount;
   for(const m of player.party)m.energy=100;
   hypoRespawnT=HYPO_RESPAWN;
@@ -31645,6 +32325,7 @@ function BossRegisvine(x,z){
   this.title='冻龙谷 · 千年冰树';
   this.isBoss=true;
   this.hpMax=8800;this.hp=this.hpMax;
+  wlApply(this);            // 世界等级：血量按当前档位放大
   this.radius=3.6;
   this.alive=true;this.active=false;
   this.phase=1;this.state='sleep';this.stateT=0;
@@ -31748,8 +32429,9 @@ BossRegisvine.prototype.die=function(){
   fxParticles([this.pos[0],this.fy+5,this.pos[2]],[0.86,0.96,1.0],9,60,2.2,true);
   /* 深渊的投影：冰壳已经收起，剩下的掉落与复活计时都不给 */
   if(this.abyss){showBossBar(false);abyBossSlain(this);return;}
-  mora+=4000;uiMora();
-  gem+=24;uiGem();
+  mora+=wlGain(4000);uiMora();
+  gem+=wlGain(24);uiGem();
+  grantAdv(400,'讨灭 极冻树');btNote('bt_vine');
   killCount+=5;$('#uiKill').textContent=killCount;
   for(const m of player.party)m.energy=100;
   vineRespawnT=VINE_RESPAWN;
@@ -32011,6 +32693,7 @@ function BossPyrovine(x,z){
   this.title='燼火之谷 · 千年火树';
   this.isBoss=true;
   this.hpMax=9200;this.hp=this.hpMax;
+  wlApply(this);            // 世界等级：血量按当前档位放大
   this.radius=3.6;
   this.alive=true;this.active=false;
   this.phase=1;this.state='sleep';this.stateT=0;
@@ -32125,8 +32808,9 @@ BossPyrovine.prototype.die=function(){
   fxParticles([this.pos[0],this.fy+5,this.pos[2]],[1.0,0.68,0.26],9,60,2.2,true);
   /* 深渊的投影：火壳已灭，掉落与重新盘踞的计时都不给 */
   if(this.abyss){showBossBar(false);abyBossSlain(this);return;}
-  mora+=4200;uiMora();
-  gem+=24;uiGem();
+  mora+=wlGain(4200);uiMora();
+  gem+=wlGain(24);uiGem();
+  grantAdv(400,'讨灭 爆炎树');btNote('bt_pyro');
   killCount+=5;$('#uiKill').textContent=killCount;
   for(const m of player.party)m.energy=100;
   pyroRespawnT=PYRO_RESPAWN;
@@ -32371,6 +33055,7 @@ function BossGeoHypo(x,z){
   this.title='南天海隅 · 磐岩之核';
   this.isBoss=true;
   this.hpMax=7800;this.hp=this.hpMax;
+  wlApply(this);            // 世界等级：血量按当前档位放大
   this.radius=3.0;
   this.alive=true;this.active=false;
   this.phase=1;this.state='sleep';this.stateT=0;
@@ -32483,8 +33168,9 @@ BossGeoHypo.prototype.die=function(){
   fxParticles([this.pos[0],this.fy,this.pos[2]],[0.88,0.84,0.66],8,44,2.0,false);
   /* 深渊的投影：石柱已落，掉落与重新凝聚的计时都不给 */
   if(this.abyss){showBossBar(false);abyBossSlain(this);return;}
-  mora+=3800;uiMora();
-  gem+=22;uiGem();
+  mora+=wlGain(3800);uiMora();
+  gem+=wlGain(22);uiGem();
+  grantAdv(400,'讨灭 无相之岩');btNote('bt_geo');
   killCount+=5;$('#uiKill').textContent=killCount;
   for(const m of player.party)m.energy=100;
   geoRespawnT=GEO_RESPAWN;
@@ -32859,9 +33545,10 @@ function makeChest(x,z){
       if(this.done)return;
       this.done=true;
       lid.rx=-1.1;lid.py=0.75;lid.pz=-0.3;
-      const gain=rndi(80,260);
+      const gain=wlGain(rndi(80,260));
       mora+=gain;uiMora();grantCash(gain,0,'拾取');
-      const gg=rndi(2,5);gem+=gg;uiGem();
+      grantAdv(40,'开启宝箱');
+      const gg=wlGain(rndi(2,5));gem+=gg;uiGem();
       const bk=rollBooks(rndi(1,2),0);
       fxSphere([x,y+0.9,z],[1,0.85,0.45],1.6,0.6,0.7);
       toast('开启宝箱：摩拉 ×'+gain+' · 原石 ×'+gg+' · '+weaponDesc(dropWeapon(null,true))+
@@ -33314,6 +34001,7 @@ BossTianli.prototype.die=function(){
   this.clearOrbit();
   skySlain=skyToday();
   grantBalls(10,'斩杀天理');
+  grantAdv(2000,'斩杀天理');       // 天理不吃世界等级的血量/攻击加成，但经验照给
   grantMat('tianli',3,'天理');
   dropWeapon('天理',false,5);
   const skyArt=bossArt('天理');        // 唯一的 5★ 保底来源之一：必掉一件高星圣遗物
@@ -33893,8 +34581,9 @@ function domOpenChest(it){
   }
   it.done=true;
   const k=DOM_KINDS[domRun.kind],n=k.wave.length;
-  const gg=rndi(16,24)+n,mo=rndi(380,520)+n*90;
+  const gg=wlGain(rndi(16,24)+n),mo=wlGain(rndi(380,520)+n*90);
   gem+=gg;mora+=mo;
+  grantAdv(250,'通关 '+(k.name||'祝圣秘境'));
   uiGem();uiMora();
   domChestLid.rx=-1.15;
   domChest.userData.glow.emissive=2.0;
@@ -34034,7 +34723,9 @@ function abyClaim(f){
   const p=abyPending(f);
   if(!p){toast('第'+f+'层没有待领的原石');return;}
   for(let r=0;r<ABY_ROOMS;r++)abyGot[f-1]|=1<<r;
-  gem+=p;uiGem();saveGame();
+  gem+=p;uiGem();
+  grantAdv(60*f,'深渊第'+f+'层');
+  saveGame();
   fxSphere([player.pos[0],player.pos[1]+1.2,player.pos[2]],[1,0.85,0.45],3.4,0.8,0.8);
   bigMsg('+'+p+' 原石');
   toast('深渊第'+f+'层：领取原石 ×'+p+'（'+abyRoomsCleared(f)+' 间 × '+abyRoomGem(f)+'）');
@@ -34805,8 +35496,9 @@ function registerDragonspine(){
         }
         if(f.done)return;
         f.done=true;it.done=true;
-        const gain=rndi(280,640);
+        const gain=wlGain(rndi(280,640));
         mora+=gain;uiMora();grantCash(gain,0,'拾取');
+        grantAdv(80,'开启冰封宝箱');
         gem+=3;uiGem();grantCash(0,3,'拾取');
         fxSphere([f.x,f.y+1,f.z],[1,0.85,0.45],2.6,0.7,0.8);
         toast('冰封宝箱开启：摩拉 ×'+gain+'，'+weaponDesc(dropWeapon(null,true))+chestArt());
@@ -34822,8 +35514,9 @@ function registerDragonspine(){
       if(dsSeal.hits>=dsSeal.need){
         if(dsSeal.done)return;
         dsSeal.done=true;sealIt.done=true;
-        const gain=rndi(900,1500);
+        const gain=wlGain(rndi(900,1500));
         mora+=gain;uiMora();grantCash(gain,0,'拾取');
+        grantAdv(150,'击碎千年寒冰');
         gem+=10;uiGem();
         fxSphere([dsSeal.x,dsSeal.y+1.6,dsSeal.z],[1,0.88,0.5],4.5,1.0,0.85);
         bigMsg('寒封已解');
@@ -34938,8 +35631,9 @@ function makeGuardedChest(camp){
       if(this.done)return;
       this.done=true;
       lid.rx=-1.15;lid.py=0.86;lid.pz=-0.30;
-      const gain=rndi(260,620);
+      const gain=wlGain(rndi(260,620));
       mora+=gain;uiMora();grantCash(gain,0,'拾取');
+      grantAdv(60,'开启营地宝箱');
       gem+=3;uiGem();grantCash(0,3,'拾取');
       for(const m of player.party)m.energy=Math.min(100,m.energy+30);
       const bk=rollBooks(rndi(1,2),1);
@@ -35140,9 +35834,10 @@ function makeLeyChest(b){
       if(this.done)return;
       this.done=true;
       lid.rx=-1.12;lid.py=0.84;lid.pz=-0.28;
-      const gain=rndi(150,380);
+      const gain=wlGain(rndi(150,380));
       mora+=gain;uiMora();grantCash(gain,0,'拾取');
-      const gg=rndi(3,7);gem+=gg;uiGem();
+      grantAdv(120,'地脉之花');
+      const gg=wlGain(rndi(3,7));gem+=gg;uiGem();
       for(const m of player.party)m.energy=Math.min(100,m.energy+20);
       const bk=rollBooks(rndi(3,4),2);
       fxSphere([x,y+1.0,z],[0.45,0.80,1.0],2.0,0.7,0.75);
@@ -36633,6 +37328,7 @@ function drawMapDS(){
 }
 function drawMapNodes(){
   const ctx=mapCtx;
+  const bt=btState===2?btCur():null;
   for(const tp of TELEPORTS){
     if(!tpOnTab(tp))continue;
     const p=tpMapPos(tp);
@@ -36640,6 +37336,20 @@ function drawMapNodes(){
     g.addColorStop(0,tp.color+'88');g.addColorStop(1,tp.color+'00');
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(p[0],p[1],20,0,TAU);ctx.fill();
     circ(p,8,tp.color,'#fff',2);
+    /* 突破目标：外面再套一圈金色虚线环，并把名字写在下面 */
+    if(bt&&tp.id===bt.anchor){
+      const t=gameTime*1.6;
+      ctx.save();
+      ctx.setLineDash([5,4]);ctx.lineDashOffset=-t*6;
+      ctx.strokeStyle='rgba(255,215,110,.95)';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(p[0],p[1],15+Math.sin(t)*1.6,0,TAU);ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font='bold 11px "PingFang SC",sans-serif';ctx.textAlign='center';
+      ctx.strokeStyle='rgba(0,0,0,.75)';ctx.lineWidth=3;
+      ctx.strokeText('突破目标 · '+bt.name,p[0],p[1]-22);
+      ctx.fillStyle='#ffe9b0';ctx.fillText('突破目标 · '+bt.name,p[0],p[1]-22);
+      ctx.restore();
+    }
   }
 }
 function drawMapCompass(){
@@ -37225,7 +37935,7 @@ function enterGame(){
     refreshPartyHpMax();
     syncWeaponModels();
     updateWishBar();updatePartyUI();updateSkillUI();updateStaminaUI();updateTeamBar();
-    uiGem();uiMora();               // 管理员的 ∞ 要盖掉载入前那一次数字写入
+    uiGem();uiMora();uiAdv();        // 管理员的 ∞ 要盖掉载入前那一次数字写入
   }catch(e){try{toast('进门时有处小问题：'+((e&&e.message)||e));}catch(e2){}}
   applyUiMode();                 // 让左下角那颗「操作方式」在门后露头（门前它一直被 #gate 压着）
   /* 转不动的竖屏机器：进世界直接切成强制横屏，别让人对着一条"请横屏"干等 */
@@ -37272,8 +37982,8 @@ addEventListener('keydown',function(e){
 const touchMove={x:0,y:0};
 const KEYS_PC='<kbd>W A S D</kbd> 移动 · <kbd>Shift</kbd> 点一下闪身步（无敌帧）/ 按住冲刺 · <kbd>空格</kbd> 跳跃/滑翔/下潜 · <kbd>鼠标左键</kbd> 攻击（那维莱特是按住蓄力） · <kbd>右键</kbd> 弓系瞄准<br>'+
   '<kbd>E</kbd> 元素战技（长按有变体） · <kbd>Q</kbd> 元素爆发 · <kbd>F</kbd> 交互 · <kbd>M</kbd> 地图传送 · <kbd>R</kbd> 坐骑 · '+
-  '<kbd>R</kbd> 召唤/收起坐骑 · <kbd>T</kbd> 编队 · <kbd>B</kbd> 背包 · <kbd>C</kbd> 祈愿 · <kbd>Y</kbd> 冒险书 · <kbd>O</kbd> 多人 · <kbd>回车</kbd> 聊天 · 进世界后左下角可切触屏 UI';
-const KEYS_TOUCH='左侧按住拖动 = 移动摇杆（推到底冲刺，猛推一下马上松手就是闪身步） · 右侧空白拖动 = 转视角<br>右下 <kbd>A</kbd> 普攻 · <kbd>E</kbd> 元素战技 · <kbd>Q</kbd> 元素爆发 · <kbd>跳</kbd> 跳跃/滑翔/下潜 · <kbd>闪</kbd> 闪身步（这一段无敌） · 闪上方 <kbd>骑</kbd> 召唤/收起坐骑（飞行中闪会变成 <kbd>降</kbd>） · 左上角图标开编队/背包/祈愿/地图 · 进世界后底部中间可切回键鼠 UI（键盘照样能用）';
+  '<kbd>R</kbd> 召唤/收起坐骑 · <kbd>T</kbd> 编队 · <kbd>B</kbd> 背包 · <kbd>C</kbd> 祈愿 · <kbd>Y</kbd> 冒险书 · <kbd>O</kbd> 多人 · <kbd>回车</kbd> 聊天 · <kbd>Esc</kbd> 角色面板（世界等级 / 突破任务 / 全部按钮） · 点右上角小地图直接开大地图 · 进世界后左下角可切触屏 UI';
+const KEYS_TOUCH='左侧按住拖动 = 移动摇杆（推到底冲刺，猛推一下马上松手就是闪身步） · 右侧空白拖动 = 转视角<br>右下 <kbd>A</kbd> 普攻 · <kbd>E</kbd> 元素战技 · <kbd>Q</kbd> 元素爆发 · <kbd>跳</kbd> 跳跃/滑翔/下潜 · <kbd>闪</kbd> 闪身步（这一段无敌） · 闪上方 <kbd>骑</kbd> 召唤/收起坐骑（飞行中闪会变成 <kbd>降</kbd>） · 左上角<b>头像</b>进角色面板（编队 / 背包 / 祈愿 / 地图 / 世界等级都在里面） · 点右上角小地图直接开大地图 · 进世界后底部中间可切回键鼠 UI（键盘照样能用）';
 function gateKeysText(){
   const gk=document.querySelector('.gKeys');
   if(gk)gk.innerHTML=isTouchUI()?KEYS_TOUCH:KEYS_PC;
@@ -37532,6 +38242,13 @@ addEventListener('keydown',function(e){
   if(hbOpen){
     if(hbDropOpen)closeHbDrop();
     else if(e.code==='KeyY'||e.code==='Escape')closeHB();
+    return;
+  }
+  /* Esc 的兜底：上面那些面板各自吃掉自己的关闭之后，剩下的"没面板"状态就是开角色面板。
+     大地图以前按 Esc 什么都不做（只有 M / × / 点黑边能关），现在也纳进来。 */
+  if(e.code==='Escape'){
+    if(mapOpen){closeMap();return;}
+    if(hubOpen)closeHub();else openHub();
     return;
   }
   if(e.code==='KeyM'){
@@ -37918,6 +38635,10 @@ function hurtPlayer(dmg,src){
      这一间里能打到人的只有那只投影，倍率不会因为别的来源被误用。 */
   if(abyRun.active&&abyRun.boss&&abyRun.boss.alive&&abyRun.phase==='fight')
     dmg*=abyAtkMul(abyRun.floor)*ABY_BOSS_ATK;
+  /* 世界等级的攻击倍率加在这里，理由和上面深渊那条一样：六只区域首领的招式伤害
+     全是写死的数字，没有 this.atk 可乘。天理按需求完全不吃世界等级的加成；
+     深渊里的投影已经吃了自己那套层数倍率，不再叠世界等级。 */
+  if(src&&!src.isTianli&&!src.abyss)dmg*=wlAtkMul();
   /* 命座里"防御力提升 / 抗打断 / 减伤"这一类统一折算成受伤减免（最多 45%） */
   dmg*=1-Math.min(0.45,cnValOf('cut')+partyBuf('cut'));
   /* 迪希雅「净焰剑狱」：领域内的场上角色挨打，48% 由她的赤鬃之血承担；
@@ -39991,13 +40712,23 @@ function saveImport(txt){
 function acMsg(el,txt){if(el)el.textContent=txt||'';}
 /* 历史角色下拉：本机存过档的名字全列出来，选中只把名字填进输入框（不自动进门）。
    一个都没有就整条藏掉，别在第一次打开时摆一个空框。 */
+/* 登录面板上要给每个历史角色标出冒险等级：直接读那一份存档的 adv 字段，
+   读不到（老档 / 没存过）就按 1 级显示，不猜。 */
+function advOfName(n){
+  try{
+    const raw=LS.getItem(NICK_PFX+n);
+    if(!raw)return 1;
+    const d=JSON.parse(raw);
+    return d&&d.adv?clamp(d.adv[0]|0,1,ADV_CAP):1;
+  }catch(e){return 1;}
+}
 function renderNickPick(){
   const sel=$('#nickPick');
   if(!sel)return;
   const l=nickHistory();
   sel.classList.toggle('off',!l.length);
   let h='<option value="">历史角色'+(l.length?'（'+l.length+'）':'')+'</option>';
-  for(const n of l)h+='<option value="'+escH(n)+'">'+escH(n)+'</option>';
+  for(const n of l)h+='<option value="'+escH(n)+'">'+escH(n)+'（Lv'+advOfName(n)+'）</option>';
   sel.innerHTML=h;
   if(!l.length)sel.value='';
 }
@@ -40008,7 +40739,8 @@ function renderNick(){
   const mine=$('#myNick');
   /* 改名之后要把框里的值跟上，但别打断正在打字的人 */
   if(mine&&mine.value!==NICK&&document.activeElement!==mine)mine.value=NICK;
-  const txt='现在叫 <b>'+(NICK||'（还没起名）')+'</b> · 进度存在这一份：<b>'+slot+'</b><br>'+
+  const txt='现在叫 <b>'+(NICK||'（还没起名）')+'</b>'+(NICK?'（Lv'+advLv+'）':'')+
+    ' · 世界等级 <b>'+worldLv+'</b> · 进度存在这一份：<b>'+slot+'</b><br>'+
     (has?'这个名字已经存过档，下次打开还是你':'进世界 8 秒后会自动落第一次盘')+
     (isAdm()?'<br><b style="color:#ffd76e">管理员</b>：原石 / 摩拉 / 突破材料 / 经验书都是 ∞，全角色全武器已发放':'')+
     (LS.ok?'':'<br><b>这台设备的浏览器不让存档</b>（微信/QQ 里打开 file:// 很常见）：'
@@ -40056,6 +40788,7 @@ function netBoot(){
   $('#admWrap').addEventListener('click',function(e){if(e.target===this)$('#admNo').click();});
   renderNickPick();
   $('#kbNet').addEventListener('click',function(){netOpen?closeNet():openNet();});
+  hubInit();          // 角色总面板：Esc / 左上角头像 / 顶部「角色」按钮，外加小地图点击开大地图
   $('#btnNetClose').addEventListener('click',closeNet);
   $('#netWrap').addEventListener('click',function(e){if(e.target===this)closeNet();});
   document.querySelectorAll('#netWrap .teTabs .tab').forEach(function(e){
