@@ -1,0 +1,11 @@
+# Windows 批处理必须落地成 CRLF，否则 env.bat / package.bat 会出问题
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制资源：禁止换行转换，也不要在 diff 里当文本展开
+*.glb binary
+*.gltf binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.ttf binary

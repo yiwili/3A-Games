@@ -1,0 +1,16 @@
+Wolf.glb
+========
+
+Pack:  Quaternius - Ultimate Animated Animals (animal pack)
+Author: Quaternius (https://quaternius.com)
+License: CC0 1.0 Universal (public domain dedication)
+Source mirror: https://github.com/trebeljahr/quaternius-showcase
+              public/glb/animals_pack/Wolf.glb
+
+Contents: 51-joint quadruped rig, 12 animation clips
+          (AnimalArmature|Attack, |Death, |Eating, |Gallop, |Gallop_Jump,
+           |Idle, |Idle_2, |Idle_2_HeadLow, |Idle_HitReact_Left,
+           |Idle_HitReact_Right, |Jump_ToIdle, |Walk).
+
+Modified in this project: only material conversion (PBR -> Phong) and
+uniform scaling at load time. No geometry or animation edits.

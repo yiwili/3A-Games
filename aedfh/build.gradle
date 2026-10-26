@@ -1,0 +1,42 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.aedfh'
+version = '0.1.0'
+
+repositories {
+    maven { url 'https://maven.aliyun.com/repository/public' }
+    mavenCentral()
+}
+
+def jmeVersion = '3.9.0-stable'
+
+dependencies {
+    implementation "org.jmonkeyengine:jme3-core:${jmeVersion}"
+    implementation "org.jmonkeyengine:jme3-desktop:${jmeVersion}"
+    implementation "org.jmonkeyengine:jme3-lwjgl3:${jmeVersion}"
+    implementation "org.jmonkeyengine:jme3-effects:${jmeVersion}"
+    implementation "org.jmonkeyengine:jme3-plugins:${jmeVersion}"
+    implementation "org.jmonkeyengine:jme3-jogg:${jmeVersion}"
+    // TerrainLighting.j3md：地形三层 splat 混合（草地/岩石/泥土）用，见任务 B
+    implementation "org.jmonkeyengine:jme3-terrain:${jmeVersion}"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+application {
+    mainClass = 'com.aedfh.Main'
+}
+
+tasks.named('run') {
+    jvmArgs = ['-Dfile.encoding=UTF-8']
+}
