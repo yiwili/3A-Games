@@ -12240,7 +12240,8 @@ buildWBArenas();
     live.add(m);return m;
   };
   /* 现代城市的材料表：浅混凝土 / 玻璃 / 钢 / 沥青 / 绿化 */
-  const ASPH=[0.19,0.20,0.22],ASPH2=[0.25,0.26,0.28];
+  const ASPH=[0.19,0.20,0.22];
+  const PAVE=[0.45,0.46,0.48];               // 街区铺装：楼与楼之间是水泥地，不是停车场
   const CON=[0.79,0.78,0.75],CON2=[0.65,0.65,0.63],WHT=[0.93,0.93,0.91];
   const GLASS=[0.37,0.50,0.59],GLASS2=[0.28,0.39,0.48],STEEL=[0.56,0.58,0.61];
   const GREEN=[0.20,0.43,0.21],HEDGE=[0.16,0.35,0.18],WATER=[0.20,0.46,0.62];
@@ -12252,7 +12253,7 @@ buildWBArenas();
   put(GEO.cylinder,[0.58,0.57,0.54],0,0,QIU_R-8,26,QIU_R-8,-18);
   put(GEO.cylinder,[0.44,0.42,0.39],0,0,318,150,318,-100);
   put(GEO.cylinder,[0.34,0.33,0.31],0,0,200,300,200,-325);
-  put(GEO.cylinder,ASPH2,0,0,346,0.12,346,0.0);
+  put(GEO.cylinder,PAVE,0,0,346,0.12,346,0.0);
   put(geoRing(330,346,128),CON2,0,0,1,1,1,0.08);      // 外圈人行步道
   put(geoRing(326,330,128),HEDGE,0,0,1,1,1,0.10);     // 环城绿化带
   put(geoRing(345.2,346,128),WHT,0,0,1,1,1,0.12);
@@ -12267,14 +12268,14 @@ buildWBArenas();
   /* 沿栏板内侧的树阵：现代城市的边界是林荫道，不是城墙 */
   for(let i=0;i<40;i++){
     const a=i/40*TAU+0.08,x=Math.cos(a)*335,z=Math.sin(a)*335;
-    put(GEO.cylinder,[0.31,0.23,0.16],x,z,0.18,2.2,0.18,1.1);
-    put(GEO.sphere8,GREEN,x,z,1.45,1.85,1.45,3.4);
-    put(GEO.sphere8,[0.25,0.50,0.26],x,z,1.02,1.30,1.02,4.12);
+    put(GEO.cylinder,[0.31,0.23,0.16],x,z,0.24,3.0,0.24,1.5);
+    put(GEO.sphere8,GREEN,x,z,1.45,1.85,1.45,4.15);
+    put(GEO.sphere8,[0.25,0.50,0.26],x,z,1.02,1.30,1.02,4.95);
   }
   /* ---- 道路：三条双向环道 + 十二条放射大道，白色标线与斑马线 ---- */
   for(let ri=0;ri<QIU_ROADS.length;ri++){
     const rr=QIU_ROADS[ri];
-    put(geoRing(rr-9,rr+9,112),ASPH,0,0,1,1,1,0.05);
+    put(geoRing(rr-9,rr+9,112),ASPH,0,0,1,1,1,0.075);
     put(geoRing(rr-9.7,rr-9,112),CON2,0,0,1,1,1,0.10);
     put(geoRing(rr+9,rr+9.7,112),CON2,0,0,1,1,1,0.10);
     put(geoRing(rr-0.16,rr+0.16,112),WHT,0,0,1,1,1,0.09);
@@ -12289,12 +12290,12 @@ buildWBArenas();
       const lx=Math.cos(a)*(rr+11.2),lz=Math.sin(a)*(rr+11.2);
       put(GEO.cylinder,STEEL,lx,lz,0.14,6.6,0.14,3.3);
       put(GEO.box,STEEL,lx,lz,0.7,0.16,1.6,6.55,0,-a,0);
-      put(GEO.box,WHT,lx-Math.cos(a)*1.05,lz-Math.sin(a)*1.05,0.55,0.16,0.85,6.44,0,-a,0);
+      put(GEO.box,WHT,lx-Math.cos(a)*0.55,lz-Math.sin(a)*0.55,0.55,0.16,0.85,6.44,0,-a,0);
       if(k%2===0){
         const tx=Math.cos(a+0.09)*(rr+13.0),tz=Math.sin(a+0.09)*(rr+13.0);
-        put(GEO.cylinder,[0.31,0.23,0.16],tx,tz,0.16,2.0,0.16,1.0);
-        put(GEO.sphere8,GREEN,tx,tz,1.35,1.70,1.35,3.10);
-        put(GEO.sphere8,[0.24,0.48,0.24],tx,tz,0.95,1.25,0.95,3.72);
+        put(GEO.cylinder,[0.31,0.23,0.16],tx,tz,0.22,2.8,0.22,1.4);
+        put(GEO.sphere8,GREEN,tx,tz,1.35,1.70,1.35,3.85);
+        put(GEO.sphere8,[0.24,0.48,0.24],tx,tz,0.95,1.25,0.95,4.60);
       }else{
         const bx=Math.cos(a+0.10)*(rr+12.4),bz=Math.sin(a+0.10)*(rr+12.4);
         put(GEO.box,[0.46,0.33,0.20],bx,bz,0.75,0.14,2.4,0.62,0,-a,0);
@@ -12310,13 +12311,15 @@ buildWBArenas();
     put(GEO.box,CON2,cs*rm-Math.cos(ry)*9.7,sn*rm+Math.sin(ry)*9.7,0.7,0.10,252,0.10,0,ry,0);
     for(let d=0;d<16;d++){
       const t=-119+d*15.9;
-      put(GEO.box,WHT,cs*rm+Math.cos(ry)*t,sn*rm-Math.sin(ry)*t,0.9,0.02,3.8,0.09,0,ry,0);
+      /* 车道虚线要顺着放射道纵向排：偏移量吃的是径向 (cs,sn)，不是切向 */
+      for(const lat of[-4.6,4.6])
+        put(GEO.box,WHT,cs*(rm+t)+sn*lat,sn*(rm+t)-cs*lat,0.9,0.02,3.8,0.105,0,ry,0);
     }
-    /* 与两条内环道交汇处的斑马线：长条沿切向，铺满整条车道 */
+    /* 与两条内环道交汇处的斑马线：白条沿切向、沿径向铺满整条车道 */
     for(const rr of [86,168]){
-      for(let q=-2;q<=2;q++){
-        const off=q*1.65,px=cs*(rr+off),pz=sn*(rr+off);
-        put(GEO.box,WHT,px,pz,8.0,0.02,1.1,0.095,0,ry,0);
+      for(let q=-4;q<=4;q++){
+        const off=q*2.05,px=cs*(rr+off),pz=sn*(rr+off);
+        put(GEO.box,WHT,px,pz,6.4,0.02,1.3,0.105,0,ry,0);
       }
     }
   }
@@ -12328,7 +12331,7 @@ buildWBArenas();
     const x=Math.cos(a)*rr,z=Math.sin(a)*rr,ry=-a,cc=CARC[i%5];
     put(GEO.box,cc,x,z,1.9,0.72,4.4,0.44,0,ry,0);
     put(GEO.box,cc,x,z,1.7,0.62,2.2,1.06,0,ry,0);
-    put(GEO.box,GLASS2,x,z,1.72,0.42,2.0,1.14,0,ry,0);
+    put(GEO.box,GLASS2,x,z,1.78,0.46,2.28,1.10,0,ry,0);
   }
   /* ---- 十八座街区广场：喷泉、行道树、长椅与一块广告牌 ---- */
   for(let pi=0;pi<QIU_PLAZAS.length;pi++){
@@ -12340,62 +12343,74 @@ buildWBArenas();
     /* 喷泉：石砌水池 + 中心方碑，水面是一块浅蓝圆盘 */
     put(GEO.cylinder,CON2,x,z,3.4,0.95,3.4,0.48);
     put(GEO.cylinder,WATER,x,z,2.8,0.12,2.8,0.98);
-    put(GEO.cylinder,CON,x,z,0.55,2.2,0.55,2.10);
+    put(GEO.cylinder,CON,x,z,0.55,2.2,0.55,2.03);
     put(GEO.sphere8,WATER,x,z,0.95,0.5,0.95,3.15);
     addCol(x+QIUP[0],z+QIUP[1],2.6,Y+3.4);
     /* 三棵行道树 */
     for(let q=0;q<3;q++){
       const aa=pl.ang+q*TAU/3+0.55,r=pl.r*0.72;
       const tx=x+Math.cos(aa)*r,tz=z+Math.sin(aa)*r;
-      put(GEO.cylinder,[0.31,0.23,0.16],tx,tz,0.18,2.1,0.18,1.05);
-      put(GEO.sphere8,GREEN,tx,tz,1.45,1.75,1.45,3.25);
-      put(GEO.sphere8,[0.25,0.50,0.26],tx,tz,1.02,1.28,1.02,3.95);
+      put(GEO.cylinder,[0.31,0.23,0.16],tx,tz,0.24,2.9,0.24,1.45);
+      put(GEO.sphere8,GREEN,tx,tz,1.45,1.75,1.45,4.05);
+      put(GEO.sphere8,[0.25,0.50,0.26],tx,tz,1.02,1.28,1.02,4.80);
     }
-    /* 广告牌：钢框 + 品牌色板 + 三条白色字带（现代都市的街角） */
+    /* 广告牌：钢框 + 品牌色板 + 三条白色字带。牌面朝广场中心，
+       两根立柱才真正顶在板子底下，而不是各站一边 */
     const aa=pl.ang+Math.PI/2,r=pl.r*0.82;
     const bx=x+Math.cos(aa)*r,bz=z+Math.sin(aa)*r;
     for(const sd of[-1,1])
       put(GEO.box,STEEL,bx+Math.cos(aa+Math.PI/2)*sd*2.1,bz+Math.sin(aa+Math.PI/2)*sd*2.1,
         0.24,4.6,0.24,2.3,0,-aa,0);
-    put(GEO.box,STEEL,bx,bz,5.6,3.4,0.38,4.7,0,-aa,0);
-    put(GEO.box,cc,bx,bz,5.1,2.9,0.46,4.7,0,-aa,0);
+    put(GEO.box,STEEL,bx-Math.cos(aa)*0.10,bz-Math.sin(aa)*0.10,0.38,3.4,5.6,4.7,0,-aa,0);
+    put(GEO.box,cc,bx-Math.cos(aa)*0.34,bz-Math.sin(aa)*0.34,0.46,2.9,5.1,4.7,0,-aa,0);
     for(let q=0;q<3;q++)
-      put(GEO.box,WHT,bx,bz,3.0-q*0.45,0.16,0.50,5.2-q*0.55,0,-aa,0);
+      put(GEO.box,WHT,bx-Math.cos(aa)*0.62,bz-Math.sin(aa)*0.62,0.12,0.16,3.0-q*0.45,5.2-q*0.55,0,-aa,0);
     addCol(bx+QIUP[0],bz+QIUP[1],2.6,Y+6.4);
-    /* 广场雕塑：慢转的钢环与核心；亮度压得很低，白天的城市不需要霓虹 */
+    /* 广场雕塑：慢转的钢环与核心。白天它得是金属，做成半透白会糊成一团鬼影 */
     const hg=new Node();hg.setPos(QIUP[0]+x,Y+10,QIUP[1]+z);live.add(hg);
-    const core=makeMesh(GEO.sphere8,WHT,0.9);
-    core.setScale(1.35,1.05,1.35);core.emissive=0.22;hg.add(core);
-    const hr=makeMesh(GEO.ring,cc,0.55);
-    hr.setScale(4.2,1,4.2);hr.rx=0.7;hr.emissive=0.18;hg.add(hr);
+    const core=makeMesh(GEO.sphere8,[0.62,0.66,0.70]);
+    core.setScale(1.35,1.05,1.35);core.emissive=0.10;hg.add(core);
+    const hr=makeMesh(GEO.ring,cc,0.8);
+    hr.setScale(4.2,1,4.2);hr.rx=0.7;hr.emissive=0.08;hg.add(hr);
     qiuHolos.push({g:hg,core:core,ring:hr,base:Y+10,ph:pi*0.7});
     const tip=liveAt(GEO.cylinder,WHT,x,z,0.20,2.8,0.20,8.2,0.8,0.25,0);
     qiuPulses.push({m:tip,base:0.25,amp:0.10,ph:pi*0.4});
   }
   /* ---- 楼群：网格撒点后剔除环道/放射道/广场/擂台，剩下的立成现代高楼 ---- */
   let towerIx=0;
-  for(let gx=-310;gx<=310;gx+=34)for(let gz=-310;gz<=310;gz+=34){
-    const d=Math.hypot(gx,gz);
-    if(d<QIU_ARENA_R+18||d>QIU_WALL-18)continue;
+  /* 让位规则按楼的真实占位算：旋转盒在径向/切向两个方向上的支撑宽度。
+     原来只比中心点留 12m，而 23m 见方的楼角最远能伸 16m，环道、广场和
+     行道树都被楼基啃掉一截，看上去就是楼压在马路上。 */
+  for(let gx=-286;gx<=286;gx+=26)for(let gz=-286;gz<=286;gz+=26){
+    const x=gx+rnd(-2.2,2.2),z=gz+rnd(-2.2,2.2);
+    const w=rnd(10,18),dep=rnd(10,18);
+    /* 只允许 90° 转身：23m 见方的楼斜 45° 以后角尖能伸 16m，
+       邻居楼就在同一格网上，斜着摆必然互相插进对方 body */
+    const ry=Math.round(rnd(0,2))*Math.PI/2+rnd(-0.03,0.03);
+    const cs=Math.cos(ry),sn=Math.sin(ry);
+    const d=Math.hypot(x,z);
+    if(d<QIU_ARENA_R+8)continue;
+    const ux=x/d,uz=z/d;
+    const au=Math.abs(ux*cs-uz*sn),av=Math.abs(ux*sn+uz*cs);
+    const hw=w*0.5+1.6,hd=dep*0.5+1.6;      // 雨棚、竖招、窗带都算进占位
+    const supR=au*hw+av*hd,supT=av*hw+au*hd;
+    if(d+supR>QIU_WALL-15)continue;
+    if(d-supR<QIU_ARENA_R+8)continue;
     let road=false;
-    for(let i=0;i<QIU_ROADS.length;i++)if(Math.abs(d-QIU_ROADS[i])<12){road=true;break;}
+    for(let i=0;i<QIU_ROADS.length;i++)if(Math.abs(d-QIU_ROADS[i])<supR+14.6){road=true;break;}
     if(road)continue;
-    const ang=Math.atan2(gz,gx),step=TAU/QIU_SPOKES;
+    const ang=Math.atan2(z,x),step=TAU/QIU_SPOKES;
     const rel=((ang-QIU_SPOKE_OFF)%step+step)%step;
-    if(Math.min(rel,step-rel)*d<13)continue;
+    if(Math.min(rel,step-rel)*d<supT+9.8)continue;
     let plaza=false;
     for(let i=0;i<QIU_PLAZAS.length;i++){
       const pl=QIU_PLAZAS[i];
-      if(Math.hypot(gx-(pl.x-QIUP[0]),gz-(pl.z-QIUP[1]))<pl.r+13){plaza=true;break;}
+      if(Math.hypot(x-(pl.x-QIUP[0]),z-(pl.z-QIUP[1]))<pl.r+Math.max(supR,supT)){plaza=true;break;}
     }
     if(plaza)continue;
-    if(Math.hypot(gx,gz-296)<34)continue;
-    const x=gx+rnd(-4.5,4.5),z=gz+rnd(-4.5,4.5);
-    const w=rnd(13,23),dep=rnd(13,23);
+    if(Math.hypot(x,z-296)<34+Math.max(supR,supT))continue;
     const mote=d<160?rnd(10,55):rnd(0,42);
     const h=Math.min(190,rnd(22,64)+mote+(towerIx%9===4?rnd(45,85):0));
-    const ry=Math.round(rnd(0,4))*Math.PI/4+rnd(-0.06,0.06);
-    const cs=Math.cos(ry),sn=Math.sin(ry);
     const bodyC=TOWERC[towerIx%TOWERC.length];
     const acc=ACC[towerIx%ACC.length];
     const glassy=towerIx%3===0;
@@ -12403,7 +12418,7 @@ buildWBArenas();
     /* 玻璃幕墙：整面幕墙楼，或三道横向窗带 */
     if(glassy){
       put(GEO.box,GLASS,x,z,w+0.16,h*0.84,dep+0.16,h*0.52,0,ry,0);
-      put(GEO.box,WHT,x,z,w+0.42,0.30,dep+0.42,h*0.94,0,ry,0);
+      put(GEO.box,WHT,x,z,w+0.34,0.30,dep+0.34,h*0.94,0,ry,0);
     }else{
       const bands=2+(towerIx%3);
       for(let b=0;b<bands;b++)
@@ -12412,7 +12427,7 @@ buildWBArenas();
     }
     /* 楼板白边 */
     for(let b=0;b<2;b++)
-      put(GEO.box,WHT,x,z,w+0.46,0.22,dep+0.46,h*(0.56+b*0.26),0,ry,0);
+      put(GEO.box,WHT,x,z,w+0.34,0.22,dep+0.34,h*(0.56+b*0.26),0,ry,0);
     /* 屋顶：女儿墙、设备层与天线 */
     const h2=rnd(2.4,7),w2=w*rnd(0.52,0.78),d2=dep*rnd(0.52,0.78);
     put(GEO.box,CON2,x,z,w2,h2,d2,h+h2/2,0,ry,0);
@@ -12421,18 +12436,22 @@ buildWBArenas();
       put(GEO.cylinder,STEEL,x,z,0.30,9,0.30,h+h2+4.5);
       put(GEO.sphere8,RED,x,z,0.55,0.55,0.55,h+h2+9.1);
     }
-    /* 立面竖招：挑一面外墙贴上去 */
+    /* 立面竖招：挑一面外墙贴上去，压进墙里 5cm，不留悬空缝 */
     const side=towerIx%4;
-    const ox=side===0?w/2+0.16:(side===1?-w/2-0.16:0);
-    const oz=side===2?dep/2+0.16:(side===3?-dep/2-0.16:0);
+    const ox=side===0?w/2+0.05:(side===1?-w/2-0.05:0);
+    const oz=side===2?dep/2+0.05:(side===3?-dep/2-0.05:0);
     put(GEO.box,acc,x+cs*ox+sn*oz,z-sn*ox+cs*oz,
       side<2?0.20:0.9,Math.max(3.2,h*0.16),side<2?0.9:0.20,
       h*rnd(0.42,0.58),0,ry,0);
-    /* 底层沿街雨棚与入口 */
-    const eoff=dep/2+0.7;
-    put(GEO.box,acc,x+sn*eoff,z+cs*eoff,Math.min(7,w*0.5),0.3,1.7,2.9,0,ry,0);
+    /* 底层沿街雨棚与入口：两根钢柱顶住外挑，不然就是一块飘在空中的板 */
+    const eoff=dep/2+0.7,canw=Math.min(7,w*0.5);
+    put(GEO.box,acc,x+sn*eoff,z+cs*eoff,canw,0.3,1.7,2.9,0,ry,0);
     put(GEO.box,GLASS,x+sn*(dep/2+0.10),z+cs*(dep/2+0.10),
       Math.min(6,w*0.42),2.4,0.16,1.2,0,ry,0);
+    for(const q of[-1,1]){
+      const lo=q*(canw*0.5-0.5),po=dep/2+1.30;
+      put(GEO.cylinder,STEEL,x+cs*lo+sn*po,z-sn*lo+cs*po,0.11,2.9,0.11,1.45);
+    }
     addCol(x+QIUP[0],z+QIUP[1],Math.hypot(w,dep)*0.5,Y+h+h2);
     towerIx++;
   }
@@ -12445,8 +12464,8 @@ buildWBArenas();
   for(let i=0;i<12;i++){
     const a=i/12*TAU+Math.PI/12,r=QIU_ARENA_R-8;
     put(GEO.cylinder,STEEL,Math.cos(a)*r,Math.sin(a)*r,0.20,12,0.20,6.0);
-    put(GEO.box,ACC[i%ACC.length],Math.cos(a+Math.PI/2)*1.7+Math.cos(a)*r,
-      Math.sin(a+Math.PI/2)*1.7+Math.sin(a)*r,3.0,1.8,0.12,10.6,0,-a,0);
+    put(GEO.box,ACC[i%ACC.length],Math.cos(a+Math.PI/2)*1.5+Math.cos(a)*r,
+      Math.sin(a+Math.PI/2)*1.5+Math.sin(a)*r,0.12,1.8,3.0,10.6,0,-a,0);
     put(GEO.sphere8,WHT,Math.cos(a)*r,Math.sin(a)*r,0.30,0.30,0.30,12.1);
     addCol(QIUP[0]+Math.cos(a)*r,QIUP[1]+Math.sin(a)*r,1.4,Y+13);
   }
@@ -12484,7 +12503,7 @@ buildWBArenas();
   for(let i=0;i<4;i++){
     const a=i/4*TAU+Math.PI/4,x=sx0+Math.cos(a)*15,z=sz0+Math.sin(a)*15;
     put(GEO.box,WHT,x,z,1.5,7,1.5,3.5,0,-a,0);
-    put(GEO.box,GLASS,x+Math.cos(a)*0.80,z+Math.sin(a)*0.80,1.1,4.2,0.14,3.3,0,-a,0);
+    put(GEO.box,GLASS,x+Math.cos(a)*0.78,z+Math.sin(a)*0.78,0.14,4.2,1.1,3.3,0,-a,0);
     put(GEO.box,WARM,x,z,1.9,0.6,1.9,7.3,0,-a,0);
     addCol(QIUP[0]+x,QIUP[1]+z,1.3,Y+8);
     const gx=sx0+Math.cos(a+Math.PI/4)*11.5,gz=sz0+Math.sin(a+Math.PI/4)*11.5;
@@ -12523,11 +12542,11 @@ buildWBArenas();
     gPut(geoRing(8.2,9.2,48),WHT,0,0,1,1,1,0.36);
     for(const s of [-1,1]){
       gPut(GEO.box,WHT,s*6.2,0,2.4,13,2.4,6.5);
-      gPut(GEO.box,GLASS,s*6.2,-1.36,2.0,10.6,0.18,6.5);
+      gPut(GEO.box,GLASS,s*6.2,-1.20,2.0,10.6,0.18,6.5);
       addCol(gx+s*6.2,gz,1.8,gy+14);
     }
     gPut(GEO.box,WHT,0,0,15.4,2.0,2.8,14);
-    gPut(GEO.box,WARM,0,-1.5,13,0.42,0.18,13.4);
+    gPut(GEO.box,WARM,0,-1.38,13,0.42,0.18,13.4);
     const gd=makeMesh(GEO.disc,[0.86,0.94,1.0],0.5);
     gd.setPos(gx,gy+5.6,gz).setScale(4.6,1,6.2).setRot(Math.PI/2,0,0);
     gd.emissive=0.8;gd.glow=1;gNode.add(gd);
@@ -13571,6 +13590,8 @@ const WEP_SHAPE={
   aqua:{Arc:1.24,Th:0.044,S:2,a:[0.62,0.80,0.98],gem:[0.60,0.92,1.0]},
   leather:{Arc:1.32,Th:0.058,S:1,a:[0.90,0.80,0.62],gem:[0.98,0.62,0.72]},
   stringless:{Arc:1.14,Th:0.038,S:0,a:[0.72,0.86,0.78]},
+  /* 最初的大魔术：林尼的专武，反曲长弓 + 赤金配色，弓臂比常规再张一点 */
+  greatmagic:{Arc:1.34,Th:0.056,S:2,a:[0.86,0.30,0.32],gem:[1.0,0.82,0.36]},
   royalbow:{Arc:1.38,Th:0.062,S:1,a:[0.86,0.82,0.58]}};
 function wepPal(p,star){
   const t=WEP_TINT[star]||WEP_TINT[3];
@@ -13839,7 +13860,7 @@ const CHAR_FRAME={traveler:'boy',amber:'girl',kaeya:'tall',lisa:'female',raiden:
   zhongli:'tall',keqing:'girl',diluc:'tall',qiqi:'child',furina:'girl',venti:'boy',niulai:'muscle',
   tianli:'tall',yish:'muscle',xiao:'boy',xiangling:'girl',baizhu:'male',tingyun:'female',paimon:'child',
   neuv:'tall',wanderer:'boy',durin:'tall',barbara:'girl',chongyun:'boy',xingqiu:'boy',sayu:'child',
-  yae:'tallF'};
+  yae:'tallF',lyney:'male',nahida:'child'};
 function frameOf(ch){
   const o={},f=FRAME[CHAR_FRAME[ch.id]||'male']||FRAME.male;
   for(const k in FRAME_DEF)o[k]=FRAME_DEF[k];
@@ -14056,6 +14077,46 @@ function buildModel(ch){
       band.setPos(0,-0.01,0.02).setScale(0.085,0.03,0.085);band.rx=0.4;t.add(band);
       hAdd(t);
     }
+  }else if(ch.hairStyle==='tophat'){
+    /* 林尼：粉色短发压一顶黑礼帽，金色帽带、帽侧插一根赤色翎羽 */
+    for(const s of [-1,1]){
+      const lock=makeMesh(GEO.capsule,hairC);
+      lock.setPos(s*0.225,1.52,-0.02).setScale(0.062,0.20,0.062);lock.rz=-s*0.16;hAdd(lock);
+    }
+    const nape=makeMesh(GEO.sphere8,hairC);
+    nape.setPos(0,1.60,0.10).setScale(0.20,0.14,0.15);hAdd(nape);
+    const brim=makeMesh(GEO.cylinder,[0.20,0.16,0.20]);
+    brim.setPos(0,1.88,0.01).setScale(0.34,0.022,0.34);brim.rx=0.06;hAdd(brim);
+    const crown=makeMesh(GEO.cylinder,[0.22,0.18,0.22]);
+    crown.setPos(0,2.06,0.01).setScale(0.225,0.36,0.225);hAdd(crown);
+    const lid=makeMesh(GEO.cylinder,[0.26,0.22,0.26]);
+    lid.setPos(0,2.24,0.01).setScale(0.225,0.02,0.225);hAdd(lid);
+    const band=makeMesh(GEO.cylinder,[0.92,0.76,0.30]);
+    band.setPos(0,1.94,0.01).setScale(0.238,0.035,0.238);hAdd(band);
+    const plume=makeMesh(GEO.sphere8,[0.94,0.30,0.36]);
+    plume.setPos(0.21,2.10,-0.10).setScale(0.045,0.17,0.03);plume.rz=-0.7;hAdd(plume);
+    const gem=makeMesh(GEO.sphere8,[1.0,0.86,0.42]);
+    gem.setPos(0,1.97,-0.21).setScale(0.05,0.05,0.04);gem.emissive=0.40;hAdd(gem);
+  }else if(ch.hairStyle==='seer'){
+    /* 纳西妲：白紫渐变长发 + 一缕短刘海，头顶一圈发光发冠，右侧别一片草叶、叶下悬一滴露 */
+    const back=makeMesh(GEO.capsule,hairC);
+    back.setPos(0,1.28,0.17).setScale(0.20,0.58,0.10);back.rx=0.10;hAdd(back);
+    const back2=makeMesh(GEO.capsule,hairLite(hairC));
+    back2.setPos(0,0.92,0.14).setScale(0.16,0.40,0.08);hAdd(back2);
+    for(const s of [-1,1]){
+      const lock=makeMesh(GEO.capsule,hairC);
+      lock.setPos(s*0.235,1.30,-0.03).setScale(0.066,0.40,0.066);hAdd(lock);
+    }
+    const fringe=makeMesh(GEO.box,hairC);
+    fringe.setPos(0,1.74,-0.16).setScale(0.30,0.10,0.06);hAdd(fringe);
+    const crown=makeMesh(GEO.ring,[0.92,1.0,0.80],0.85);
+    crown.setPos(0,1.90,0.02).setScale(0.26,1,0.26);crown.rx=Math.PI/2-0.18;
+    crown.emissive=0.50;hAdd(crown);
+    const leaf=makeMesh(GEO.sphere8,[0.42,0.86,0.44]);
+    leaf.setPos(0.245,1.70,0.02).setScale(0.05,0.13,0.03);leaf.rz=0.6;
+    leaf.emissive=0.30;hAdd(leaf);
+    const dew=makeMesh(GEO.sphere8,[0.66,0.98,0.72]);
+    dew.setPos(0.30,1.52,0.0).setScale(0.04,0.06,0.04);dew.emissive=0.50;hAdd(dew);
   }else if(ch.hairStyle==='pony'){
     const t=new Node();
     t.setPos(0,1.70,0.14);
@@ -21838,12 +21899,482 @@ const hutao={
           '，按人数回 '+(add?add:0)+' 点生命');
   }
 };
+/* ============ 本轮新增：两位限定五星（林尼 / 纳西妲） ============ */
+const LN_FIRE=[1.0,0.56,0.22],LN_GOLD=[1.0,0.84,0.36],LN_HATC=[0.17,0.13,0.18];
+const ND_GRN=[0.56,0.92,0.48],ND_LIT=[0.84,1.0,0.76];
+/* 召唤物与延迟段是自己结算的，那一刻全局 cnTalent 未必还停在要的那一档，
+   所以取攻击力一律"按住再取"（白术 / 八重同一套规矩）。 */
+function lnAtk(t){const _t=cnTalent;cnTalent=t;const v=atkOf(CHAR_MAP.lyney);cnTalent=_t;return v;}
+function ndAtk(t){const _t=cnTalent;cnTalent=t;const v=atkOf(CHAR_MAP.nahida);cnTalent=_t;return v;}
+/* ---- 怪笑猫猫帽：二段蓄力的落点上落一顶，4 秒里每秒吐一发礼花术弹，
+        到点（或被战技引爆、被新帽子顶掉）再炸一次。写法照杀生樱。 ---- */
+let lnHats=[],lnHatSys=null,lnHatIt=null;
+let lnCatT=0,lnCatAcc=0,lnCatSys=null,lnCatIt=null;
+function lnHatCap(){return cnOn('lyney',1)?2:1;}
+function lnHatNode(){
+  const g=new Node();
+  const brim=makeMesh(GEO.cylinder,LN_HATC);
+  brim.setPos(0,0.06,0).setScale(0.78,0.06,0.78);g.add(brim);
+  const crown=makeMesh(GEO.cylinder,LN_HATC);
+  crown.setPos(0,0.46,0).setScale(0.50,0.74,0.50);g.add(crown);
+  const band=makeMesh(GEO.cylinder,LN_GOLD);
+  band.setPos(0,0.20,0).setScale(0.53,0.10,0.53);g.add(band);
+  const plume=makeMesh(GEO.sphere8,[0.96,0.36,0.40]);
+  plume.setPos(0.40,0.80,-0.04).setScale(0.09,0.26,0.05);plume.rz=-0.9;g.add(plume);
+  const eyes=[];
+  for(const s of[-1,1]){
+    const e=makeMesh(GEO.sphere8,LN_GOLD,0.95);
+    e.setPos(s*0.17,0.50,-0.24).setScale(0.06,0.075,0.04);g.add(e);eyes.push(e);
+  }
+  const halo=makeMesh(GEO.ring,LN_FIRE,0.7);
+  halo.setPos(0,0.03,0).setScale(1.25,1,1.25);halo.rx=Math.PI/2;g.add(halo);
+  return {g:g,eyes:eyes,halo:halo};
+}
+function lnEnsure(){
+  if(lnHatSys)return;
+  lnHatSys=new Node();
+  lnHatIt=fxAdd({node:lnHatSys,life:1e9,update:lnHatRun});
+}
+function lnHatRun(dt,t){
+  for(let i=lnHats.length-1;i>=0;i--){
+    const h=lnHats[i];
+    h.life-=dt;h.t-=dt;
+    h.node.ry+=dt*1.1;
+    const s=1.25+Math.sin(t*3.2+h.ph)*0.12;
+    h.halo.setScale(s,1,s);
+    const gl=0.55+Math.sin(t*6+h.ph)*0.35;
+    for(const e of h.eyes)e.emissive=gl;
+    if(h.t<=0){h.t+=1.0;lnFirework(h);}
+    if(h.life<=0){lnHatBoom(h,1.0);lnHatSys.remove(h.node);lnHats.splice(i,1);}
+  }
+  if(!lnHats.length){lnHatSys=null;lnHatIt=null;return true;}
+  return false;
+}
+function lnAddHat(x,z){
+  lnEnsure();
+  while(lnHats.length>=lnHatCap()){
+    const old=lnHats.shift();
+    lnHatBoom(old,0.7);lnHatSys.remove(old.node);
+  }
+  const y=terrainHeight(x,z),mk=lnHatNode();
+  mk.g.setPos(x,y,z);mk.g.ry=Math.atan2(x-player.pos[0],z-player.pos[2]);
+  lnHatSys.add(mk.g);
+  lnHats.push({x:x,y:y,z:z,life:4.0,t:1.0,node:mk.g,eyes:mk.eyes,halo:mk.halo,
+               ph:Math.random()*TAU});
+  fxRing([x,y+0.1,z],LN_GOLD,3.4,0.4);
+  fxParticles([x,y+0.8,z],[1.0,0.74,0.30],1.6,8,0.5,true);
+}
+/* 礼花术弹：帽子朝范围内最近的一名敌人补一发（官方的"每 5 秒嘲讽一次"本作不做嘲讽） */
+function lnFirework(h){
+  let best=null,bd=16;
+  for(const e of allTargets()){
+    if(!e.alive)continue;
+    const d=Math.hypot(e.pos[0]-h.x,e.pos[2]-h.z);
+    if(d<bd){bd=d;best=e;}
+  }
+  if(!best)return false;
+  spawnProjectile({from:[h.x,h.y+0.8,h.z],to:[best.pos[0],best.pos[1]+0.8,best.pos[2]],
+    color:LN_GOLD,thick:0.10,speed:46,flyTime:0.30,target:best,
+    dmg:lnAtk('pa')*1.30*lyney.cheer(best),element:'pyro',
+    onHit:function(p){fxParticles(p,LN_GOLD,1.5,6,0.4,true);}});
+  return true;
+}
+function lnHatBoom(h,mul){
+  const y=terrainHeight(h.x,h.z),R=4.6;
+  for(const t of enemiesInCircle([h.x,y+0.9,h.z],R)){
+    t.e.takeDamage(lnAtk('pa')*1.55*(mul||1),'pyro');
+    if(t.e.alive)knockFrom(t.e,[h.x,y,h.z],1.4);
+  }
+  fxRing([h.x,y+0.12,h.z],LN_GOLD,R*2.1,0.5);
+  fxSphere([h.x,y+1.0,h.z],LN_FIRE,3.0,0.4,0.8);
+  fxParticles([h.x,y+1.2,h.z],[1.0,0.72,0.30],2.6,12,0.6,true);
+}
+/* ---- 大魔术·灵迹巡游：化形期间贴身烧，收尾一记大爆炸 ---- */
+function lnCatEnsure(){
+  if(lnCatSys)return;
+  lnCatSys=new Node();
+  lnCatIt=fxAdd({node:lnCatSys,life:1e9,update:lnCatRun});
+}
+function lnCatRun(dt){
+  if(lnCatT>0){
+    lnCatT-=dt;lnCatAcc-=dt;
+    if(lnCatAcc<=0){
+      lnCatAcc=0.5;
+      const x=player.pos[0],z=player.pos[2],y=terrainHeight(x,z);
+      let n=0;
+      for(const t of enemiesInCircle([x,y+0.9,z],4.4)){
+        t.e.takeDamage(lnAtk('q')*0.80,'pyro');n++;
+        if(t.e.alive)knockFrom(t.e,[x,y,z],1.0);
+      }
+      if(n){
+        fxRing([x,y+0.12,z],LN_GOLD,8.0,0.35);
+        fxParticles([x,y+1.1,z],LN_FIRE,2.2,6,0.4,true);
+      }
+    }
+    return false;
+  }
+  lnCatBlast();
+  lnCatSys=null;lnCatIt=null;
+  return true;
+}
+function lnCatBlast(){
+  const x=player.pos[0],z=player.pos[2],y=terrainHeight(x,z),R=9.0;
+  for(const t of enemiesInCircle([x,y+1.0,z],R)){
+    t.e.takeDamage(lnAtk('q')*2.80,'pyro');
+    if(t.e.alive)knockFrom(t.e,[x,y,z],3.0);
+  }
+  fxRing([x,y+0.15,z],LN_GOLD,R*2.2,0.8);
+  fxSphere([x,y+1.6,z],LN_FIRE,7.0,0.6,0.85);
+  fxParticles([x,y+1.4,z],[1.0,0.70,0.28],6.0,30,1.0,true);
+  sfxShock([x,y+0.8,z],1.0,9,0.6,1.2);
+  toast('灵迹巡游收尾：9 米内 280% 火伤');
+}
+/* 2 命「巧言贴耳的诱引」：站场每 2 秒一层集意专注（至多 3 层），退场清零。
+   不为一条命座开常驻系统——只在暴击判定里惰性补时间。 */
+function lnFocus(){
+  if(!cnOn('lyney',2)){player.lnFoc=0;return 0;}
+  const act=activeChar();
+  if(!act||act.id!=='lyney'){player.lnFoc=0;player.lnFocNext=0;return 0;}
+  if(!player.lnFocNext){player.lnFocNext=gameTime+2;return player.lnFoc;}
+  while(player.lnFoc<3&&gameTime>=player.lnFocNext){player.lnFoc++;player.lnFocNext+=2;}
+  return player.lnFoc;
+}
+function lnClear(){
+  lnHats.length=0;lnCatT=0;
+  if(lnHatIt)fxKill(lnHatIt);
+  lnHatSys=null;lnHatIt=null;
+  if(lnCatIt)fxKill(lnCatIt);
+  lnCatSys=null;lnCatIt=null;
+  player.lnStack=0;player.lnFlareT=0;player.lnFoc=0;player.lnFocNext=0;
+}
+const lyney={
+  id:'lyney',name:'林尼',element:'pyro',weapon:'bow',hairStyle:'tophat',
+  color:0xc2402e,hair:0xf0b6c2,atk:60,hpMax:1470,size:0.96,
+  eName:'眩惑光戏法',eCd:11,qName:'大魔术·灵迹巡游',qEnergy:60,
+  /* 二段蓄力的门槛挂在 aimNeed()（1.9 秒）：charge 满到 1 才发「隐具魔术箭」 */
+  pow:function(){return 1+0.30*player.lnStack;},
+  /* 固有天赋「完场喝彩」：本作敌人身上有元素附着（takeDamage 里的 aura），
+     所以照官方判"处于火元素影响下的敌人"，加成随队伍里的火系人数走，封顶 +50% */
+  cheer:function(tgt){
+    if(!tgt||tgt.aura!=='pyro'||!(tgt.auraTimer>gameTime))return 1;
+    let n=0;
+    for(const p of player.party)
+      if(p.alive&&CHAR_MAP[p.id]&&CHAR_MAP[p.id].element==='pyro')n++;
+    return 1+Math.min(0.50,0.15+0.10*Math.max(0,n-1));
+  },
+  attack:function(){
+    player.startAnim('shoot',0.34,{});
+    this.shot([1.00,1.06,1.38][player.combo]||1.00,0);
+  },
+  chargedAttack:function(charge){
+    const self=this;
+    player.startAnim('shoot',charge>=1?0.52:0.42,{charged:true});
+    if(charge<1){self.shot(1.35+charge*0.55,1);return;}
+    /* 二段蓄力：血线在 60% 以上就先烧一口血换一层隐具余数（最多压到 60%） */
+    const m=activeMember();
+    if(m){
+      const floor=Math.round(m.hpMax*0.60);
+      const pay=Math.min(Math.round(m.hpMax*0.20),m.hp-floor);
+      if(pay>0){
+        m.hp-=pay;
+        const s=charState[m.id];if(s)s.hp=m.hp;
+        updatePartyUI();
+        gainEn(m,3);                        // 固有天赋「惊险演出」：烧血回 3 点能量
+        player.lnFlareT=gameTime+8;         // 此后 8 秒里重击 +25%
+        showDamage([player.pos[0],player.pos[1]+2.5,player.pos[2]],'-'+pay,'#ff9a6a','rx');
+      }
+      if(player.lnStack<5)player.lnStack++;
+    }
+    self.shot(2.35,2);
+  },
+  shot:function(mult,kind){
+    const self=this,dir=aimDir();
+    const o=[player.pos[0],player.pos[1]+1.35,player.pos[2]];
+    let best=null,bd=40;
+    for(const e of allTargets()){
+      if(!e.alive)continue;
+      const dx=e.pos[0]-o[0],dy=e.pos[1]+0.9-o[1],dz=e.pos[2]-o[2];
+      const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+      if(d>40)continue;
+      const dot=(dx*dir[0]+dy*dir[1]+dz*dir[2])/d;
+      if(dot>(kind>=2?Math.cos(0.10):Math.cos(0.24))&&d<bd){bd=d;best=e;}
+    }
+    let end;
+    if(best)end=[best.pos[0],best.pos[1]+0.9,best.pos[2]];
+    else{
+      const px=o[0]+dir[0]*30,pz=o[2]+dir[2]*30;
+      end=[px,Math.max(o[1]+dir[1]*30,terrainHeight(px,pz)+0.3),pz];
+    }
+    let dmg=atkOf(self)*mult*(kind>=2?self.pow():1);
+    if(kind>=1&&player.lnFlareT>gameTime)dmg*=1.25;
+    if(kind>=1&&best){
+      dmg*=self.cheer(best);
+      /* 4 命「熟稔习练的筹谋」：官方的火抗 -25% 没有抗性乘区，折算成受到的所有伤害 +25% */
+      if(cnOn('lyney',4)){best.vuln=Math.max(best.vuln||0,0.25);best.vulnT=gameTime+6;}
+    }
+    spawnProjectile({from:[o[0]+dir[0]*0.6,o[1],o[2]+dir[2]*0.6],to:end,
+      color:kind>=2?LN_GOLD:LN_FIRE,thick:kind>=2?0.15:0.09,charged:kind>=1,
+      speed:kind>=2?74:92,flyTime:0.32,target:best,dmg:dmg,element:'pyro',
+      onHit:function(p){
+        fxParticles(p,kind>=2?LN_GOLD:LN_FIRE,kind>=2?2.4:1.3,kind>=2?14:5,0.45,true);
+        if(kind<2)return;
+        lnAddHat(p[0],p[2]);
+        if(cnOn('lyney',1))lnAddHat(p[0]+1.8,p[2]+1.4);
+        /* 6 命「违心的笑」：同一支箭在落点再奏一发礼花术弹（100% 礼花伤害，算重击） */
+        if(cnOn('lyney',6)){
+          const R=3.6;
+          for(const t of enemiesInCircle([p[0],p[1],p[2]],R))
+            t.e.takeDamage(lnAtk('pa')*1.30,'pyro');
+          fxRing([p[0],p[1]-0.9,p[2]],LN_GOLD,R*2.0,0.45);
+          fxSphere(p,[1.0,0.78,0.30],3.2,0.4,0.8);
+        }
+      }});
+  },
+  skill:function(){
+    const self=this,k=player.lnStack;
+    player.lnStack=0;
+    const dir=aimDir(),o=[player.pos[0],player.pos[1]+1.2,player.pos[2]];
+    const hl=Math.hypot(dir[0],dir[2])||1;
+    const gy=terrainHeight(o[0],o[2]);
+    player.startAnim('cast',0.5,{});
+    const mult=2.10+0.55*k;
+    for(const t of enemiesInCone(o,[dir[0]/hl,0,dir[2]/hl],8.0,Math.cos(0.62))){
+      t.e.takeDamage(atkOf(self)*mult*self.cheer(t.e),'pyro');
+      if(t.e.alive)knockFrom(t.e,o,1.8);
+    }
+    for(let i=lnHats.length-1;i>=0;i--){
+      lnHatBoom(lnHats[i],1.0);lnHatSys.remove(lnHats[i].node);lnHats.splice(i,1);
+    }
+    const m=activeMember();let add=0;
+    if(k>0&&m){
+      add=Math.min(m.hpMax-m.hp,Math.round(m.hpMax*0.20*k));
+      if(add>0){
+        m.hp+=add;
+        const s=charState[m.id];if(s)s.hp=m.hp;
+        showDamage([o[0],o[1]+2.6,o[2]],'+'+add,'#7ce8a4','rx');
+        updatePartyUI();
+      }
+    }
+    fxSlashArc([o[0]+dir[0]*3.0,o[1],o[2]+dir[2]*3.0],player.camYaw,0.2,LN_GOLD,6.0,0.32);
+    fxParticles([o[0]+dir[0]*4.0,o[1]+0.6,o[2]+dir[2]*4.0],LN_FIRE,4.0,20,0.7,true);
+    sfxShock([o[0],gy+0.6,o[2]],0.8,7,0.35,0.9);
+    toast('眩惑光戏法：烧掉 '+k+' 层隐具余数，'+Math.round(mult*100)+'% 火伤'+
+          (add?'，回 '+add+' 点血':''));
+  },
+  burst:function(){
+    const dir=aimDir(),hl=Math.hypot(dir[0],dir[2])||1;
+    bigMsg('大魔术·灵迹巡游');
+    player.startAnim('cast',0.6,{});
+    cancelHoldLive();
+    if(player.lnStack<5)player.lnStack++;
+    lnCatT=4.0;lnCatAcc=0;lnCatEnsure();
+    startDash(dir[0]/hl,dir[2]/hl,1.15,30,LN_GOLD);
+    const o=[player.pos[0],player.pos[1]+1.1,player.pos[2]];
+    const gy=terrainHeight(o[0],o[2]);
+    fxRing([o[0],gy+0.14,o[2]],LN_GOLD,10.0,0.7);
+    fxParticles(o,[1.0,0.78,0.34],4.0,24,0.9,true);
+    sfxShock(o,0.9,8,0.4,1.0);
+    toast('怪笑帽帽猫出动：4 秒巡游贴身火伤，收尾一记 9 米 280% 大爆炸（隐具余数 +1）');
+  }
+};
+/* ---- 纳西妲：蕴种印（链接）→ 灭净三业（传导）→ 摩耶之殿（领域） ---- */
+let ndLinkN=0,ndCd={},ndBusy=false,ndFieldSys=null,ndFieldIt=null;
+function ndMarked(e){return !!e&&e.alive&&e.ndT>gameTime;}
+/* 队伍里某个元素的人数。1 命「心识蕴藏之种」把火/雷/水各多算一名。 */
+function ndCount(el){
+  let n=0;
+  for(const p of player.party)
+    if(p.alive&&CHAR_MAP[p.id]&&CHAR_MAP[p.id].element===el)n++;
+  if((el==='pyro'||el==='electro'||el==='hydro')&&partyHasCN('nahida',1))n++;
+  return n;
+}
+/* 本作的"元素精通"就是圣遗物那一叠（没有独立精通乘区，折算写在 artEmDmg 里） */
+function ndEm(){
+  const A=artSumOf('nahida');
+  let em=A?A.em:0;
+  if(cnOn('nahida',4)){
+    let n=0;
+    for(const e of enemies)if(ndMarked(e))n++;
+    em+=[0,100,120,140,160][Math.min(4,n)];
+  }
+  return em;
+}
+function ndTriDmg(){
+  const em=ndEm();
+  let d=ndAtk('e')*1.05+em*2.20;
+  /* 固有天赋「慧明缘觉智论」：超过 200 的精通每点 +0.1% 伤害
+     （官方同档还有 +0.03% 暴击率，本作并进这一支乘数里） */
+  if(em>200)d*=1+Math.min(0.80,(em-200)*0.001);
+  /* 摩耶之殿 · 火：领域里灭净三业增伤，两名火系再抬一档 */
+  if(player.ndFieldT>gameTime){
+    const np=ndCount('pyro');
+    if(np>=2)d*=1.45;else if(np>=1)d*=1.25;
+  }
+  return d;
+}
+/* 摩耶之殿 · 雷：灭净三业的触发间隔从 1 秒压到 0.72 / 0.5 秒 */
+function ndGapSec(){
+  if(player.ndFieldT>gameTime){
+    const ne=ndCount('electro');
+    if(ne>=2)return 0.50;
+    if(ne>=1)return 0.72;
+  }
+  return 1.0;
+}
+function ndPulse(e,mul){
+  if(ndBusy||!ndMarked(e))return 0;
+  const now=gameTime,g=e.ndL;
+  if((ndCd[g]||0)>now)return 0;
+  ndCd[g]=now+ndGapSec();
+  ndBusy=true;
+  const d=ndTriDmg()*(mul||1);
+  let n=0;
+  for(const t of enemies){
+    if(!t.alive||t.ndL!==g||!(t.ndT>now))continue;
+    fxLine([e.pos[0],e.pos[1]+1.0,e.pos[2]],[t.pos[0],t.pos[1]+1.0,t.pos[2]],ND_GRN,0.22,0.05);
+    t.takeDamage(d,'dendro');
+    fxParticles([t.pos[0],t.pos[1]+0.9,t.pos[2]],ND_LIT,1.1,3,0.3,true);
+    n++;
+  }
+  if(n)showDamage([e.pos[0],e.pos[1]+2.2,e.pos[2]],'灭净三业','#9ff07a','rx');
+  ndBusy=false;
+  return n;
+}
+/* 6 命「大辨圆成之实」：大招之后 10 秒里，普攻打中带印的敌人就顺着链接补一发业障除 */
+function ndC6Hit(e){
+  const g=e.ndL,d=ndAtk('q')*2.00+ndEm()*4.00;
+  let n=0;
+  for(const t of enemies){
+    if(!t.alive||t.ndL!==g||!(t.ndT>gameTime))continue;
+    fxBolt([e.pos[0],e.pos[1]+2.6,e.pos[2]],[t.pos[0],t.pos[1]+1.0,t.pos[2]],
+      ND_LIT,0.28,0.10,6);
+    t.takeDamage(d,'dendro');
+    n++;
+  }
+  if(n)showDamage([e.pos[0],e.pos[1]+2.8,e.pos[2]],'业障除 ×'+n,'#c8ff9a','rx');
+  return n;
+}
+function ndFieldEnsure(){
+  if(ndFieldSys)return;
+  const x=player.ndFieldX,z=player.ndFieldZ,y=terrainHeight(x,z);
+  const sys=new Node();
+  const dome=makeMesh(GEO.hem,[0.62,0.94,0.66],0.22);
+  dome.setScale(8.4,5.4,8.4);dome.setPos(0,2.7,0);dome.emissive=0.30;sys.add(dome);
+  const rim=makeMesh(GEO.ring,ND_LIT,0.75);
+  rim.setScale(8.4,1,8.4);rim.setPos(0,0.08,0);sys.add(rim);
+  const rim2=makeMesh(GEO.ring,[0.86,1.0,0.80],0.6);
+  rim2.setScale(6.0,1,6.0);rim2.setPos(0,0.05,0);sys.add(rim2);
+  const mote=[];
+  for(let i=0;i<14;i++){
+    const m=makeMesh(GEO.sphere8,ND_LIT,0.8);
+    m.setScale(0.13,0.13,0.13);sys.add(m);mote.push(m);
+  }
+  sys.setPos(x,y,z);
+  ndFieldSys=sys;
+  ndFieldIt=fxAdd({node:sys,life:1e9,update:function(dt,t){
+    if(player.ndFieldT<=gameTime){ndFieldSys=null;ndFieldIt=null;return true;}
+    sys.ry+=dt*0.30;rim2.ry-=dt*0.6;
+    for(let i=0;i<mote.length;i++){
+      const a=i/mote.length*TAU+t*0.7,r=3.0+Math.sin(t*1.2+i)*3.4;
+      mote[i].setPos(Math.cos(a)*r,0.6+((t*0.9+i*0.37)%1)*4.4,Math.sin(a)*r);
+    }
+    return false;
+  }});
+}
+function ndClear(){
+  for(const e of enemies){e.ndT=0;e.ndL=0;}
+  ndCd={};ndLinkN=0;
+  if(ndFieldIt)fxKill(ndFieldIt);
+  ndFieldSys=null;ndFieldIt=null;
+  player.ndFieldT=0;player.ndEmGive=0;player.ndC6T=0;player.ndC6N=0;
+}
+const nahida={
+  id:'nahida',name:'纳西妲',element:'dendro',weapon:'catalyst',hairStyle:'seer',
+  color:0xf2e8f6,hair:0xe6e0f2,atk:46,hpMax:1260,size:0.80,
+  eName:'所闻遍计',eCd:6,qName:'心景幻成',qEnergy:60,
+  attack:function(){
+    const seg=player.combo;
+    player.startAnim('shoot',0.32,{});
+    this.bolt([0.86,0.94,1.28][seg]||0.9,seg===2);
+  },
+  bolt:function(mult,wide){
+    const self=this,dir=aimDir();
+    const o=[player.pos[0],player.pos[1]+1.25,player.pos[2]];
+    const lst=enemiesInCone(o,dir,18.0,Math.cos(0.42)).sort((a,b)=>a.d-b.d)
+      .slice(0,wide?3:2);
+    for(const h of lst){
+      const e=h.e;
+      spawnProjectile({from:[o[0]+dir[0]*0.4,o[1],o[2]+dir[2]*0.4],
+        to:[e.pos[0],e.pos[1]+0.8,e.pos[2]],color:ND_GRN,thick:0.09,speed:60,
+        flyTime:0.26,target:e,dmg:atkOf(self)*mult,element:'dendro',
+        onHit:function(p){fxParticles(p,ND_LIT,1.2,4,0.3,true);}});
+      if(player.ndC6T>gameTime&&player.ndC6N<6&&ndMarked(e)){
+        player.ndC6N++;ndC6Hit(e);
+      }
+    }
+    if(!lst.length)fxParticles(o,ND_GRN,1.4,3,0.25,true);
+  },
+  /* 点按：身前一小圈；长按：大范围扫描——冷却由引擎按 hold 抬到 10 秒 */
+  skill:function(){this.scan(7.6,4,false,1.0);},
+  holdSkill:function(){this.scan(13.5,8,true,1.25);},
+  scan:function(R,N,hold,mul){
+    player.startAnim('cast',hold?0.62:0.42,{});
+    const o=[player.pos[0],player.pos[1]+1.2,player.pos[2]];
+    const gy=terrainHeight(o[0],o[2]);
+    const lst=enemiesInCircle([o[0],gy+0.8,o[2]],R).sort((a,b)=>a.d-b.d).slice(0,N);
+    const g=++ndLinkN;
+    for(const h of lst){
+      const e=h.e;
+      e.ndT=gameTime+12;e.ndL=g;
+      fxRing([e.pos[0],e.pos[1]+0.1,e.pos[2]],ND_GRN,2.6,0.5);
+    }
+    fxCircle([o[0],gy+0.1,o[2]],R,[0.62,0.96,0.66],0.9,
+      {beam:false,runes:hold?22:12});
+    if(lst.length)ndPulse(lst[0].e,mul);
+    /* 2 命「正等善见之根」：本作没有草反应，折算成带印的敌人受到的所有伤害 +20% */
+    if(lst.length&&cnOn('nahida',2))
+      for(const h of lst){
+        h.e.vuln=Math.max(h.e.vuln||0,0.20);h.e.vulnT=gameTime+12;
+      }
+    toast(hold?'所闻遍计 · 长按扫链 '+lst.length+' 名敌人':'所闻遍计：链上 '+lst.length+' 名敌人');
+  },
+  burst:function(){
+    const self=this;
+    bigMsg('心景幻成');
+    player.startAnim('cast',0.75,{});
+    cancelHoldLive();
+    const o=[player.pos[0],player.pos[1]+1.2,player.pos[2]];
+    const gy=terrainHeight(o[0],o[2]);
+    let dur=15;
+    const nh=ndCount('hydro');
+    if(nh>=2)dur+=6;else if(nh>=1)dur+=3;      // 摩耶之殿 · 水：延长持续时间
+    player.ndFieldT=gameTime+dur;
+    player.ndFieldX=o[0];player.ndFieldZ=o[2];
+    /* 固有天赋「净善摄受明论」：把队伍里最高的那份精通的 25% 借给场上角色，封顶 250 */
+    let top=0;
+    for(const p of player.party){
+      if(!p.alive)continue;
+      const A=artSumOf(p.id);if(A&&A.em>top)top=A.em;
+    }
+    player.ndEmGive=Math.min(250,Math.round(top*0.25));
+    ndFieldEnsure();
+    for(const h of enemiesInCircle([o[0],gy+1.0,o[2]],8.4))
+      h.e.takeDamage(atkOf(self)*2.20,'dendro');
+    fxRing([o[0],gy+0.15,o[2]],ND_LIT,17.0,0.9);
+    fxSphere([o[0],gy+2.2,o[2]],ND_GRN,6.0,0.7,0.7);
+    fxParticles(o,[0.72,1.0,0.70],6.0,26,1.2,true);
+    sfxShock([o[0],gy+1.0,o[2]],0.8,6,0.5,1.0);
+    if(cnOn('nahida',6)){player.ndC6T=gameTime+10;player.ndC6N=0;}
+    toast('摩耶之殿：'+dur+' 秒，场上角色精通 +'+player.ndEmGive+
+          '，灭净三业按队伍里的火/雷/水加伤、缩间隔、延时');
+  }
+};
 const ALL_CHARS=[traveler,amber,kaeya,lisa,raiden,ganyu,zhongli,keqing,diluc,qiqi,
                  furina,venti,niulai,tianli,yish,
                  xiao,xiangling,baizhu,tingyun,paimon,neuvillette,yae,
                  wanderer,durin,barbara,chongyun,xingqiu,sayu,
                  jean,tighnari,mona,dehya,mizuki,sigewinne,
-                 ayaka,ayato,hutao];
+                 ayaka,ayato,hutao,lyney,nahida];
 const CHAR_MAP={};ALL_CHARS.forEach(c=>CHAR_MAP[c.id]=c);
 const WEAPON_NAME={sword:'单手剑',claymore:'双手剑',polearm:'长柄武器',bow:'弓',catalyst:'法器'};
 /* ============ 武器与属性 ============ */
@@ -21927,6 +22458,8 @@ const WEP_BOOK=[
   W('图莱杜拉的回忆',5,'catalyst',292,'atkPct',0.30,'swift',[0.08,0.10],'图莱杜拉的舞步','tulay'),
   W('若水',5,'bow',314,'critDmgPct',0.42,'shot',[0.40],'止水','aqua'),
   W('飞雷之弦振',5,'bow',316,'critDmgPct',0.40,'burst',[0.30,12],'巴印','leather'),
+  /* 林尼的专武：重击增伤常驻，同元素队友叠「手法」加攻、异元素队友叠「演技」加速 */
+  W('最初的大魔术',5,'bow',318,'critDmgPct',0.42,'magic',[0.16,0.16,0.04],'伟大者帕西法尔','greatmagic'),
   /* ---- 本轮新增：四星 10 把（全部进常驻四星池，与原有 25 把同池等概率）---- */
   W('天目影打刀',4,'sword',218,'atkPct',0.16,'sight',[10,0.06],'岩藏之爪','ameoma'),
   W('黑岩长剑',4,'sword',220,'critDmgPct',0.12,'crit',[0.08,10],'黑岩之勇','heihan'),
@@ -21955,7 +22488,7 @@ const CHAR_DEF={traveler:96,amber:74,kaeya:88,lisa:70,raiden:79,ganyu:82,
                 tianli:88,yish:118,xiao:92,xiangling:88,baizhu:104,tingyun:76,paimon:80,neuv:80,
                 wanderer:78,durin:92,barbara:66,chongyun:92,xingqiu:82,sayu:96,yae:84,
                 jean:98,tighnari:72,mona:70,dehya:106,mizuki:74,sigewinne:88,
-                ayaka:76,ayato:82,hutao:90};
+                ayaka:76,ayato:82,hutao:90,lyney:79,nahida:63};
 const BASE_CRIT=0.10,BASE_CRIT_DMG=1.50;   // 人人都有 10% 暴击、150% 爆伤
 /* 全屏遮罩：大地图、编队、背包、祈愿、福利弹窗。任何一个开着都不再吃游戏操作 */
 let wishOpen=false,wishFxOn=false,giftOpen=false,giftDone=false;
@@ -22051,18 +22584,37 @@ function wepAtkMul(ch){
     case 'swift':return p[0]||0;
     case 'fury':{const s=charState[ch.id];
       return (s&&s.hp/s.hpMax<0.5)?(p[0]||0):0;}
+    /* 「最初的大魔术」的手法：队伍里每有一位与装备者同元素（含自己）算一层，三层封顶 */
+    case 'magic':return (p[1]||0.16)*Math.min(3,wepElSame(ch));
   }
   return 0;
 }
+/* 大魔术要按"同色 / 异色队友数"分档，两处都要数，所以单独一个 helper */
+function wepElSame(ch){
+  let n=0;
+  for(const q of player.party)
+    if(q.alive&&CHAR_MAP[q.id]&&CHAR_MAP[q.id].element===ch.element)n++;
+  return n;
+}
+function wepElDiff(ch){return Math.max(0,(player.party||[]).length-wepElSame(ch));}
 /* 疾行增益：四风原典 / 松籁这类武器的移速档 */
 function wepSpd(ch){
   const w=weaponOf(ch);
-  return (w&&w.eff==='swift')?((w.p&&w.p[1])||0):0;
+  if(!w)return 0;
+  if(w.eff==='swift')return (w.p&&w.p[1])||0;
+  /* 「最初的大魔术」的演技：异元素队友 1/2/3 层 → 移速 4% / 7% / 10% */
+  if(w.eff==='magic'){
+    const n=Math.min(3,wepElDiff(ch)),base=(w.p&&w.p[2])||0.04;
+    return n>=3?base*2.5:(n>=2?base*1.75:(n>=1?base:0));
+  }
+  return 0;
 }
 /* 弓的「矢志」：按弹道落点距离结算，射程越远加成越高 */
 function wepShotMul(ch,dist){
   const w=weaponOf(ch);
-  if(!w||w.eff!=='shot')return 1;
+  if(!w)return 1;
+  if(w.eff==='magic')return 1+((w.p&&w.p[0])||0.16);   // 大魔术：重击伤害恒常 +16%
+  if(w.eff!=='shot')return 1;
   const cap=(w.p&&w.p[0])||0.3;
   return 1+clamp((dist-6)/26,0,1)*cap;
 }
@@ -22367,8 +22919,13 @@ function activeElOf(id){const c=CHAR_MAP[id];return c?c.element:null;}
 /* 精通折算成的元素伤害：每 100 点 EM_TO_DMG，乐团 4 件再乘 emMul */
 function artEmDmg(id){
   const A=artSumOf(id);
-  if(!A||!A.em)return 0;
-  return A.em/100*EM_TO_DMG*A.emMul;
+  /* 纳西妲的固有天赋「净善摄受明论」：摩耶之殿期间，场上角色额外借到一份精通。
+     本作没有独立精通乘区，精通一律在这里折成元素伤害，所以借来的那份也走同一条路。 */
+  const lend=(player.ndFieldT>gameTime&&player.ndEmGive&&
+    activeChar()&&activeChar().id===id)?player.ndEmGive:0;
+  const em=(A?A.em:0)+lend;
+  if(!em)return 0;
+  return em/100*EM_TO_DMG*(A?A.emMul:1);
 }
 /* 圣遗物合计给这个角色的元素伤害加成：杯子主词条（要同系）+ 元素套 + 精通折算 */
 function artElDmg(id,element){
@@ -23075,6 +23632,8 @@ function critRoll(ch,tgt){
   if(player.htCritT>gameTime&&partyHasCN('hutao',4))rate+=0.12;
   /* 胡桃 6 命「幽蝶能留一缕芳」：保命那 10 秒里暴击率 +50%（官方同款数字） */
   if(act&&act.id==='hutao'&&player.htC6T>gameTime)rate+=0.50;
+  /* 林尼 2 命「巧言贴耳的诱引」：站场每 2 秒一层集意专注，每层暴击伤害 +20%（至多 3 层） */
+  if(act&&act.id==='lyney'){const foc=lnFocus();if(foc)dmg+=0.20*foc;}
   const hit=Math.random()<Math.min(0.85,rate);
   /* 同一命座的后半段：暴击一次就把这一状态延长 0.5 秒（累计至多 +2 秒）、爆伤 +15%（至多 +60%） */
   if(hit&&act&&act.id==='dehya'&&player.dhLionT>gameTime&&cnOn('dehya',6)){
@@ -23102,6 +23661,7 @@ function effTxt(w){
     case 'swift':return w.sk+'：移动速度提升 '+pc(p[1])+'，攻击力提升 '+pc(p[0]);
     case 'crit':return w.sk+'：击破敌人后暴击率提升 '+pc(p[0])+'（可叠 5 层），持续 '+p[1]+' 秒';
     case 'sight':return w.sk+'：施放元素爆发后恢复 '+p[0]+' 点元素能量，并为当前角色回 '+pc(p[1])+' 生命';
+    case 'magic':return w.sk+'：重击造成的伤害提升 '+pc(p[0])+'；队伍中每有一位与装备者同元素的角色，攻击力再提升 '+pc(p[1])+'（至多 3 层）；每有一位不同元素的角色，移动速度提升 4%/7%/10%（至多 3 层）';
   }
   return w.sk;
 }
@@ -23375,7 +23935,18 @@ hutao:{
   pa:['往生秘传枪法 · 三段','三段长柄 90% / 98% / 134% 攻击力，距离 3.2~4.2 米，末段附火。<em>彼岸蝶舞</em>期间全程附火。<br><em>长按普攻</em>蓄力 0.85 秒＝重击「胡蝶踏空」：朝瞄准方向穿出 6 米，锥内（7 米、cos0.55）220% 火伤，并给撞到的敌人种下<em>血梅香</em>；没蓄满只出一记 110%、不种香。'],
   e:['蝶引来生','付出<em>当前生命的 30%</em>（至少 1 点，打死不了自己），身周 5 米 120% 火伤 + 顶开 2.4 米，随后进入 9 秒<em>彼岸蝶舞</em>：普攻与重击全部附火，并把生命上限折成固定攻击力——每 1000 生命 +300 攻击，<em>封顶为她基础攻击力的 400%</em>（官方同款封顶，免得高生命圣遗物把攻击抬成天文数字）。<br>1 命「赤团开时斜飞去」：本作的重击本来就不耗体力，折算成蝶舞期间的重击伤害 +25%。'],
   q:['安神秘法','半径 7.5 米 280% 火伤 + 顶开 2.6 米；每命中一个敌人按<em>生命上限</em>回 6.26%（最多算 5 个人），她自己生命低于 50% 时伤害与治疗都 ×125%。2 命「最不安神晴又复雨」：这一发也顺手把血梅香种上，且血梅香每跳再 +1.25% 生命上限。'],
-  ps:['血之灶火','被动：生命低于 50% 时火元素伤害加成 +22%。血梅香挂在既有的灼烧通道上——每秒一跳 3.1% 生命上限、持续 8 秒，重复种只续时间不叠层。4 命「伴君眠花房」：被血梅香烧死的敌人给<em>全队</em> +12% 暴击率、15 秒；6 命「幽蝶能留一缕芳」：本该致死的那一下只掉到 1 点血，此后 10 秒伤害 +35%、暴击率 +50%，60 秒一次。']}
+  ps:['血之灶火','被动：生命低于 50% 时火元素伤害加成 +22%。血梅香挂在既有的灼烧通道上——每秒一跳 3.1% 生命上限、持续 8 秒，重复种只续时间不叠层。4 命「伴君眠花房」：被血梅香烧死的敌人给<em>全队</em> +12% 暴击率、15 秒；6 命「幽蝶能留一缕芳」：本该致死的那一下只掉到 1 点血，此后 10 秒伤害 +35%、暴击率 +50%，60 秒一次。']},
+ /* ---- 本轮新增的两位限定五星（林尼 / 纳西妲）---- */
+ lyney:{
+  pa:['迫牌易位式 · 三段','三段弓箭射击 100% / 106% / 138% 攻击力（物理），射程 40 米、命中锥 cos0.24。<br><em>右键蓄力</em>分两档：<em>一段蓄力</em>（0.9 秒）射出附火箭，135% → 蓄满 190% 火伤；<em>二段蓄力</em>（1.9 秒，林尼的门槛单独调高）发射<em>「隐具魔术箭」</em>：235% 火伤 ×（1 + 30% × 隐具余数），命中处落一顶<em>怪笑猫猫帽</em>。<br>血线在 60% 以上时，二段蓄力发射前先烧<em>生命上限的 20%</em>（最多压到 60% 为止），换 1 层<em>隐具余数</em>（至多 5 层）、回 3 点元素能量，并在此后 8 秒里让重击伤害 +25%（固有天赋「惊险演出」）。'],
+  e:['眩惑光戏法','11 秒冷却。林尼挥动礼帽引爆礼花：先<em>清空身上的隐具余数</em>，朝瞄准方向 8 米锥（cos0.62）落一发 <em>210% + 每层 55%</em> 的火伤（5 层就是 485%），顶开 1.8 米；每清一层再按<em>生命上限回 20%</em>（5 层回满）。场上属于他自己的怪笑猫猫帽会被引爆，各炸一圈 4.6 米 155% 火伤。'],
+  q:['大魔术·灵迹巡游','60 能量。化形为能快速移动的<em>怪笑帽帽猫</em>：起手朝瞄准方向冲出 1.15 秒，此后 4 秒里每 0.5 秒对身周 4.4 米的敌人落一发 80% 火伤并顶开 1.0 米；持续时间结束时<em>再炸一次</em>——9 米内 280% 火伤、顶开 3.0 米。施放时顺手积累 1 层隐具余数。'],
+  ps:['完场喝彩','被动：对<em>处于火元素影响下的敌人</em>（身上挂着火附着的 8 秒里）伤害 +15%，队伍中每多一名火系角色再 +10%，封顶 +50%。<br>怪笑猫猫帽：同时至多 1 顶（1 命后 2 顶），存续 4 秒，期间每 1 秒朝 16 米内最近的敌人补一发<em>礼花术弹</em>（130% 火伤），到点或被引爆时炸一圈。隐具余数在脱战后会随换人、传送一起清掉。']},
+ nahida:{
+  pa:['行相 · 三段','三段法器攻击 86% / 94% / 128% 攻击力草伤：18 米扇形（cos0.42）里按距离锁<em>最多 2 名</em>敌人，末段锁 3 名，每人各吃一发。本作法器没有蓄力重击这一档，所以<em>末段</em>就是纳西妲的"重击"位（6 命的业障除按这一段判）。'],
+  e:['所闻遍计','<em>点按</em>（6 秒冷却）：身前 7.6 米内至多 4 名敌人被种下<em>蕴种印</em>并连成同一条<em>链接</em>，持续 12 秒，起手那一发按 100% 结算。<br><em>长按</em>（冷却抬到 10 秒）：范围扩到 13.5 米、至多 8 名，起手那一发按 125% 结算。<br>带印的敌人被<em>队伍里任何人</em>打中（灼烧这类跳伤不算），就顺着链接给全体补一发<em>灭净三业</em>：105% 攻击力 + 2.2 × 元素精通的草伤，同一组链接每秒至多跳一次。'],
+  q:['心景幻成','60 能量。把梦想的殿堂具现：先对 8.4 米内落一发 220% 草伤，再展开 15 秒<em>摩耶之殿</em>。领域按队伍里的元素类型生效——<em>火</em>：灭净三业伤害 +25%（两名火系 +45%）；<em>雷</em>：触发间隔从 1.0 秒压到 0.72 秒（两名 0.50 秒）；<em>水</em>：持续时间延长 3 秒（两名 6 秒）。她在后台也照样吃这些效果。'],
+  ps:['慧明缘觉智论','被动：超过 200 点的元素精通每 1 点让灭净三业伤害 +0.1%（封顶 +80%）；官方同档还给的 +0.03% 暴击率，本作<em>并进这一支伤害乘数</em>。<br>固有天赋「净善摄受明论」：领域期间把队伍里<em>最高的那份元素精通的 25%</em>（封顶 250 点）借给场上角色，走本作的精通→元素伤害折算（每 100 点精通折一档元素伤害）。本作没有草元素反应，也没有独立精通乘区，所以精通只从圣遗物来、并且一律折成伤害。']}
 };
 /* 长按的通用说明：弓靠右键，那维莱特靠普攻键，钟离 / 温迪 / 刻晴靠 E */
 /* 突破进度点：一次突破点亮一颗，剩下的显示空点；只对已拥有的角色画。
@@ -23750,11 +24321,11 @@ function starOf(id){return CHAR_4[id]?4:5}
    其余五星排进每日一轮的 up 表。歪的时候就在这 9 个里等概率出一个。
    4★ 一律是常驻四星（用户定的规则），所以香菱/芭芭拉/重云/行秋/早柚不进这张表。 */
 const STD_CHAR=['diluc','qiqi','keqing','jean','tighnari','mona','dehya','mizuki','sigewinne'];
-/* 每日一轮 up 的限定五星：17 位（含本轮新增的神里绫华 / 神里绫人 / 胡桃）。
-   用户明确"这三位进每日一轮 up 池"，所以不开单独的限定池。 */
+/* 每日一轮 up 的限定五星：19 位（含神里绫华 / 神里绫人 / 胡桃，以及本轮新增的林尼 / 纳西妲）。
+   用户明确"这几位进每日一轮 up 池"，所以不开单独的限定池。 */
 const UP_CHAR=['venti','raiden','ganyu','zhongli','xiao','baizhu','furina',
                'tianli','paimon','tingyun','neuv','wanderer','durin','yae',
-               'ayaka','ayato','hutao'];
+               'ayaka','ayato','hutao','lyney','nahida'];
 /* 天空系列 = 常驻五星武器，其余五星武器每天轮换一把当 up */
 function isSkyWep(n){return String(n||'').indexOf('天空')>=0}
 function skyWepNames(){const o=[];for(const w of WEP_HIGH[5])if(isSkyWep(w.n))o.push(w.n);return o}
@@ -24037,6 +24608,21 @@ const CN={
   ['伴君眠花房','「血梅香」消灭敌人时，队伍中所有角色暴击率提升 12%，持续 15 秒（本作实装：只有胡桃种下的血梅香收人头才算，她在后台也算她在场）。',{}],
   ['无可奈何燃花作香','元素爆发「安神秘法」天赋等级 +3（本作换算：该段伤害 +18%）。',{t_q:CN_TAL}],
   ['幽蝶能留一缕芳','受到致命伤害时胡桃会保留 1 点生命值，并在接下来的 10 秒里获得 250% 元素抗性与物理抗性、所有伤害 +125%、暴击率 +50%，该效果 60 秒冷却（本作没有抗性乘区，折算为<em>只掉到 1 点血 + 10 秒内伤害 +35%、暴击率 +50%</em>，60 秒一次）。',{}]]},
+ /* ---- 林尼 / 纳西妲的命之座（照官方 4.0 / 3.2 的六层写，做不到的都标了本作换算）---- */
+ lyney:{c:[
+  ['空取奇思的手艺','怪笑猫猫帽至多可以同时存在 2 顶，「隐具魔术箭」命中时会召唤 2 顶并额外积累 1 层「隐具余数」，该效果每 15 秒至多触发一次（本作实装：帽子数上限 1→2，二段蓄力命中即在落点两侧各落一顶）。',{}],
+  ['巧言贴耳的诱引','林尼在场上时，每 2 秒获得一层「集意专注」：暴击伤害提升 20%，至多 3 层，退场时清除（本作实装：站场计时惰性累加，切人、传送立刻清零，最高 +60% 暴击伤害）。',{}],
+  ['玄迷灵敏的指法','普通攻击「迫牌易位式」的天赋等级提高 3 级（本作换算：该段伤害 +18%，含两档蓄力重击）。',{t_pa:CN_TAL}],
+  ['熟稔习练的筹谋','火元素的重击命中敌人后，该敌人的火元素抗性降低 25%，持续 6 秒（本作没有抗性乘区，折算为<em>被这一箭命中的敌人受到的所有伤害 +25%，6 秒</em>）。',{}],
+  ['穿越隐秘的通术','元素爆发「大魔术·灵迹巡游」的天赋等级提高 3 级（本作换算：该段伤害 +18%）。',{t_q:CN_TAL}],
+  ['违心的笑','林尼发射「隐具魔术箭」时，会再发射一发「礼花术弹·重奏」，造成礼花术弹 100% 的伤害，且该伤害视为重击伤害（本作实装：箭矢落点当场炸一圈 3.6 米，每只 130% 火伤，走重击那一档天赋）。',{}]]},
+ nahida:{c:[
+  ['心识蕴藏之种','展开摩耶之殿计算队伍中特定元素类型的角色数量时，额外计入火元素、雷元素、水元素的角色各 1 名（本作实装：这三档判定各 +1，于是零命就能吃到"两名"那一档）。',{}],
+  ['正等善见之根','处于纳西妲自身施加的蕴种印状态下的敌人：燃烧、绽放等草反应的伤害可以暴击，且受到激化类反应后防御力降低 30%（本作没有草反应也没有防御乘区，折算为<em>被她自己种上蕴种印的敌人，受到的所有伤害 +20%，随印记持续 12 秒</em>）。',{}],
+  ['熏习成就之芽','元素战技「所闻遍计」的天赋等级提高 3 级（本作换算：该段伤害 +18%，含灭净三业与业障除的攻击力那一档）。',{t_e:CN_TAL}],
+  ['比量现行之茎','附近处于蕴种印状态下的敌人数量为 1/2/3/4 或更多时，纳西妲的元素精通提升 100/120/140/160 点（本作实装：按当前带印敌人数实时加精通，走精通→伤害的同一套折算）。',{}],
+  ['妙谛破愚之叶','元素爆发「心景幻成」的天赋等级提高 3 级（本作换算：该段伤害 +18%）。',{t_q:CN_TAL}],
+  ['大辨圆成之实','施放心景幻成后的 10 秒内，普通攻击命中带印敌人时，会对该敌人及链接中的全体释放「灭净三业·业障除」，基于攻击力的 200% 与元素精通的 400% 造成草伤，至多触发 6 次（本作实装：末段那一下算"重击"位，触发次数与 10 秒窗口都在大招施放时刷新）。',{}]]},
  /* ---- 三位原创角色的命之座（本作设计，官方没有对应资料）----
     命座道具来自"重复抽到该角色"（天理/派蒙在每日轮换 up 的五星里、牛来在四星池），
     管理员账号登录时直接给这三位各 6 枚，方便逐级点亮测试。 */
@@ -26101,7 +26687,7 @@ function admGrant(){
      还得等轮到自己的那一天）。管理员直接补到"还能点亮 6 级"，只补差额、
      绝不回收已经点亮过的层数，这样登录后可以自己一级一级试点。 */
   for(const id of ['paimon','tianli','niulai','jean','tighnari','mona','dehya','mizuki','sigewinne',
-                   'ayaka','ayato','hutao']){
+                   'ayaka','ayato','hutao','lyney','nahida']){
     const need=6-(litOf(id)|0),have=conBag[id]|0;
     if(need>have){conBag[id]=need;cm+=need-have;}
   }
@@ -26447,7 +27033,7 @@ function nickRefresh(){
   NET.name=NICK;
   renderNick();
   renderNet();
-  if(gateReady)setGateTip((NICK?'旅行者 '+NICK+' · ':'先填昵称 · ')+
+  if(gateReady)setGateTip((NICK?'旅行者 '+NICK+'（Lv'+advLv+'）· ':'先填昵称 · ')+
     (savedPlace?'存档已就绪，点击回到上次离开的地方':'门已开启，点击进入提瓦特'));
 }
 function saveGame(){
@@ -26604,6 +27190,7 @@ function loadGame(){
   }
   btRefresh();
   uiAdv();
+  wlRefreshAll();
   bag.length=0;
   for(const a of (d.it||[])){
     if(!a||a.length<11)continue;
@@ -26837,6 +27424,8 @@ function resetTransient(){
   dropWedge();
   endBull();
   yaeClear();            // 杀生樱立在她放下的那块地上，跨区不能带过去
+  lnClear();             // 怪笑猫猫帽与巡游同理：帽子留在丘丘城，人不能带着走
+  ndClear();             // 蕴种印挂在敌人身上、摩耶之殿支在原地，换区一律收掉
   player.climb=null;
   player.climbLock=0;
   player.burstHide=false;
@@ -26932,6 +27521,11 @@ const player={
   atBladeT:0,atStack:0,atC6:0,atMirrorT:0,atMirrorX:0,atMirrorZ:0,atMirrorIt:null,
   atFieldT:0,atFieldX:0,atFieldZ:0,atFieldIt:null,
   htButterflyT:0,htAtk:0,htAtkT:0,htC6T:0,htC6Next:0,htCritT:0,
+  /* 林尼：隐具余数层数、「惊险演出」的重击增伤截止、2 命集意专注的层数与节拍
+     纳西妲：摩耶之殿的截止与圆心、借给场上角色的精通、6 命业障除的剩余次数
+     ——全部必须在字面量里声明，否则每帧读到 undefined 一路变 NaN */
+  lnStack:0,lnFlareT:0,lnFoc:0,lnFocNext:0,
+  ndFieldT:0,ndFieldX:0,ndFieldZ:0,ndEmGive:0,ndC6T:0,ndC6N:0,
   tnFieldT:0,tnSwift:0,tnEmT:0,tnCalmT:0,tnIt:null,
   mnImgT:0,mnImgIt:null,mnC2T:0,mnC6T:0,mnC6S:0,
   dhFieldT:0,dhFieldX:0,dhFieldZ:0,dhBlood:0,dhLionT:0,dhBolt:0,dhC6Cd:0,
@@ -27512,13 +28106,13 @@ let fate=0;                             // fate：纠缠之缘，精英怪的掉
 function grantAdv(n,why){
   n=Math.round(n||0);
   if(!(n>0))return;
-  if(advLv>=ADV_CAP){advExp=0;return;}
+  if(advLv>=ADV_CAP){advExp=0;btRefresh();return;}   // 满级也要重算突破资格，否则封顶后永远接不到下一次
   advExp+=n;
   let up=0;
   while(advLv<ADV_CAP&&advExp>=advNeed(advLv)){advExp-=advNeed(advLv);advLv++;up++;}
   if(advLv>=ADV_CAP)advExp=0;
+  btRefresh();
   if(up){
-    btRefresh();
     bigMsg('冒险等级 '+advLv);
     toast('冒险等级升到 '+advLv+' 级'+(why?'（'+why+'）':'')+' · '+advGateTip());
     if(typeof renderHub==='function'&&hubOpen)renderHub();
@@ -27538,12 +28132,18 @@ function btRefresh(){
   if(btState===0&&advLv>=(wlMax+1)*10)btState=1;
 }
 /* ---- 世界等级调节：随时可降，立即作用于场上所有怪与 boss ---- */
+/* 场上所有活着的怪与 boss 都按当前世界等级重算一遍。
+   读档时也要调：营地怪是在脚本执行期就 new 出来的，那时 worldLv 还是 0，
+   不在 loadGame 之后补一次，重进游戏就会看到"档位是 5、怪却是出厂血量"。 */
+function wlRefreshAll(){
+  for(const e of enemies)if(e.alive)wlApply(e);
+  for(const b of wlLive())if(b&&b.alive)wlApply(b);
+}
 function wlSet(n){
   n=clamp(n|0,0,wlMax);
   if(n===worldLv)return false;
   worldLv=n;
-  for(const e of enemies)if(e.alive)wlApply(e);
-  for(const b of wlLive())if(b&&b.alive)wlApply(b);
+  wlRefreshAll();
   toast('世界等级 '+n+' · 怪物血量 ×'+(1+n)+'、攻击 ×'+(1+0.2*n).toFixed(2)+
         ' · 掉落同步');
   uiAdv();
@@ -27610,9 +28210,9 @@ function btDeliver(){
   balls+=10;syncBallUI();grantNote('相遇之缘',10,5,'世界等级突破','缘');
   wlMax=Math.min(WL_CAP,wlMax+1);
   btState=0;btBoss='';
+  btRefresh();                         // 交付完当场把下一次突破的资格算好，别等下次升级
   worldLv=wlMax;                       // 突破成功即按新上限开档，之后可以在面板往下调
-  for(const e of enemies)if(e.alive)wlApply(e);
-  for(const x of wlLive())if(x&&x.alive)wlApply(x);
+  wlRefreshAll();
   uiAdv();
   bigMsg('世界等级 '+wlMax);
   toast('世界等级提升到 '+wlMax+' · 怪物血量 ×'+(1+wlMax)+'、攻击 ×'+(1+0.2*wlMax).toFixed(2)+
@@ -27931,6 +28531,10 @@ Enemy.prototype.takeDamage=function(dmg,element,isDot){
     healPartyFlat(Math.round(500+TA));
     tlMarkBusy=false;
   }
+  /* 纳西妲「蕴种印」：带印的敌人被任何来源打中，就顺着链接给全体补一发灭净三业。
+     ndBusy 挡住"传导的伤害又触发一轮传导"这条递归链，跳伤（isDot）不算触发，
+     同一组链接的 1 秒内置冷却在 ndPulse 里管。 */
+  if(this.ndT>gameTime&&!isDot&&!ndBusy)ndPulse(this,1.0);
   if(reaction){
     showDamage([this.pos[0],this.pos[1]+1.6,this.pos[2]],reaction.name,reaction.color,'rx');
     if(reaction.aoe){
@@ -38355,6 +38959,8 @@ function cleanupChargeFx(){
    同样的按住时长就能更早吃到满蓄力那一档）。 */
 function aimNeed(){
   const ch=activeChar();
+  /* 林尼的「隐具魔术箭」是二段蓄力：门槛抬到 1.9 秒，charge 满到 1 才发那一支 */
+  if(ch&&ch.id==='lyney')return 1.9;
   if(ch&&ch.id==='tighnari'){
     let t=0.9;
     if(player.tnSwift>0)t-=0.48;
@@ -41243,6 +41849,9 @@ function bootStep(delay,p,txt,fn){
 }
 bootStep(60,0.16,'正在开启通往提瓦特的门…',function(){
   try{BOOT_LOADED=loadGame();}catch(e){bootFail('读档',e);BOOT_LOADED=false;}
+  /* netBoot 在脚本执行期就把门上的"现在叫 X"画了一遍，那时还没读档，
+     等级会一直显示成 Lv1 / 世界 0。读完档要再刷一次。 */
+  try{renderNick();}catch(e){bootFail('刷新昵称',e);}
   /* 清角色 + 发补偿必须在建队之前：编队只允许有"已拥有"的角色 */
   try{migPending=applyCharMigration()||0;}catch(e){bootFail('角色迁移',e);}
   admSync();                       // 管理员档：把自检按钮亮出来
