@@ -10,6 +10,8 @@ final class WorldData {
     static final float HALF = SIZE * 0.5f;
     static final float WATER_Y = 0.55f;
     static final float SEA_FLOOR = -16f;
+    /** 涉水深度：水没过这个值才拦人；塘底最深只挖到 1.2m，所以池塘永远进得去。 */
+    static final float WADE_DEPTH = 1.35f;
 
     static final float LAKE_X = 250f;
     static final float LAKE_Z = 115f;
@@ -18,6 +20,43 @@ final class WorldData {
 
     static final float STORM_X = -405f;
     static final float STORM_Z = -455f;
+
+    /** 内陆水塘：椭圆盆地 + 独立水位（水面 = 塘心地形 - 0.55m），depth 是塘心最深水深。 */
+    record Pond(String name, float x, float z, float rx, float rz, float depth) {
+    }
+
+    static final Pond[] PONDS = {
+            new Pond("艾雷水塘", -260f, 150f, 32f, 25f, 1.05f),
+            new Pond("关卡沼泽", 20f, 175f, 27f, 22f, 1.15f),
+            new Pond("雾林深潭", 320f, 390f, 34f, 27f, 1.10f),
+            new Pond("南岸水塘", 60f, 470f, 30f, 23f, 1.00f),
+            new Pond("湖东水塘", 450f, 60f, 28f, 22f, 1.10f),
+            new Pond("海德南塘", 610f, 120f, 30f, 24f, 1.05f),
+            new Pond("山丘水塘", -220f, -470f, 28f, 21f, 1.00f),
+            new Pond("龙息水塘", 150f, -140f, 25f, 20f, 1.10f),
+    };
+
+    /** 峡谷：到折线的距离做 U 形下切，depth 为最大下切深度，halfWidth 为半宽。 */
+    record Gorge(float x1, float z1, float x2, float z2, float depth, float halfWidth) {
+    }
+
+    static final Gorge[] GORGES = {
+            new Gorge(60f, -120f, 140f, -30f, 22f, 34f),
+            new Gorge(330f, 180f, 420f, 260f, 20f, 30f),
+            new Gorge(500f, 300f, 590f, 370f, 24f, 32f),
+    };
+
+    /** 该点属于哪个塘（椭圆归一化距离 < 1.3 视为水域），没有就返回 null。 */
+    static Pond pondAt(float x, float z) {
+        for (Pond p : PONDS) {
+            float dx = (x - p.x()) / p.rx();
+            float dz = (z - p.z()) / p.rz();
+            if (dx * dx + dz * dz < 1.69f) {
+                return p;
+            }
+        }
+        return null;
+    }
 
     static final Vector3f2 SPAWN = new Vector3f2(0f, 348f);
     static final Vector3f2 MARGIT_GATE = new Vector3f2(-382f, -404f);
@@ -51,7 +90,11 @@ final class WorldData {
             new GraceDef("cave-exit", "求学洞窟", 0f, 335f, 3.14f)
     };
 
-    /** kind: 0 ruin, 1 camp, 2 shack, 3 church, 4 evergaol, 5 well. */
+    /**
+     * kind: 0 ruin, 1 camp, 2 shack, 3 church, 4 evergaol, 5 well,
+     * 6/7 城堡, 8 stone circle, 9 mausoleum, 10 colossus, 11 broken bridge.
+     * 0..7 会把周围地形压平；8 以后自带地貌关系，不压平台。
+     */
     static final Poi[] POIS = {
             new Poi("关卡前方废墟", -95f, 70f, 34f, 0),
             new Poi("风暴关卡", -345f, -350f, 26f, 0),
@@ -70,7 +113,11 @@ final class WorldData {
             new Poi("玛莉卡第三教堂", 420f, -155f, 22f, 3),
             new Poi("风暴山丘的破屋", -220f, -285f, 14f, 2),
             new Poi("史东薇尔城", -405f, -455f, 150f, 6),
-            new Poi("史东薇尔城主殿", -405f, -588f, 34f, 7)
+            new Poi("史东薇尔城主殿", -405f, -588f, 34f, 7),
+            new Poi("风蚀石阵", -110f, -500f, 30f, 8),
+            new Poi("英雄陵墓", 585f, -265f, 26f, 9),
+            new Poi("坠落巨像", -60f, -335f, 34f, 10),
+            new Poi("断桥遗迹", 100f, -75f, 44f, 11)
     };
 
     static final float[][] ROADS = {

@@ -16,7 +16,7 @@ final class WorldBoss extends Target {
         GODRICK
     }
 
-    enum State { IDLE, CHASE, WINDUP, STRIKE, RECOVER, STAGGER, DEAD }
+    enum State { IDLE, CHASE, WINDUP, STRIKE, RECOVER, STAGGER, KNOCKDOWN, DEAD }
 
     enum MoveKind { MELEE, DASH, LEAP, AOE, BREATH, SUMMON, FLURRY, TELEPORT }
 
@@ -206,17 +206,38 @@ final class WorldBoss extends Target {
     int flurryHits;
     boolean engaged;
     boolean available = true;
+    /** 截图/自测用：冻结状态机，只让模型按当前 move/stateTime 摆姿势。 */
+    boolean poseLock;
     boolean phase2;
     boolean evDied;
     boolean evPlayerHit;
     boolean evSummon;
     boolean evEngaged;
 
+    /** 失衡窗口：足够玩家从两三个身位外跑过来按处决，又不会站着白送。 */
+    static final float STAGGER_WINDOW = 4.2f;
+    private static final float KNOCKDOWN_TIME = 1.5f;
+
+    boolean executionLocked;
+
     private final Vector3f spawn = new Vector3f();
     private final Vector3f tmp = new Vector3f();
+    private final Vector3f dashDir = new Vector3f();
+    private final Vector3f leapFrom = new Vector3f();
+    private final Vector3f leapTo = new Vector3f();
+    private final Vector3f tipBuf = new Vector3f();
+    private final Vector3f midBuf = new Vector3f();
+    private final Vector3f pivotBuf = new Vector3f();
     private final Random rnd = new Random(31);
     private final Move[] moves;
     private float poiseDelay;
+    private float strikeHitAt;
+    private float dashDist;
+    private float dashTravel;
+    private float dashDust;
+    private boolean strikeHit;
+    /** 自测：一次 STRIKE 里单帧最大位移，用来抓“瞬移贴脸”。 */
+    float testMaxStep;
 
     WorldBoss(AssetManager am, Node parent, Fx fx, WorldTerrain terrain, Spec spec) {
         this.spec = spec;
@@ -289,20 +310,56 @@ final class WorldBoss extends Target {
 
     @Override
     boolean canBeExecuted(Vector3f from) {
-        return false;
+        return alive && available && state == State.STAGGER && !executionLocked
+                && MathX.distXZ(pos, from) < 3.4f + spec.radius;
     }
 
+    /** 提交处决时冻结失衡窗口，Boss 转身面向玩家（不要把背留给镜头）。 */
     @Override
     void lockForExecution(Vector3f from) {
+        executionLocked = true;
+        stateTime = 0f;
+        yaw = MathX.yawTo(pos, from);
     }
 
     @Override
     void clearExecutionLock() {
+        executionLocked = false;
+        if (state == State.STAGGER) {
+            stateTime = STAGGER_WINDOW;
+        }
     }
 
+    /** 处决：按最大生命值给一刀，活下来的话跪倒一段时间，然后才恢复。 */
     @Override
     void takeExecution(float dmg, Vector3f impact) {
-        takeHit(dmg, 60f, impact);
+        executionLocked = false;
+        if (!alive) {
+            return;
+        }
+        hp = Math.max(0f, hp - Math.max(dmg, spec.hp * 0.12f));
+        poise = poiseMax;
+        poiseDelay = 2f;
+        hitFlash = 1f;
+        evPlayerHit = true;
+        cameraShake = Math.max(cameraShake, 1.25f);
+        tmp.set(pos.x, pos.y + displayHeight() * 0.55f, pos.z);
+        fx.spark(tmp.clone(), new ColorRGBA(1f, 0.82f, 0.45f, 1f), 34);
+        fx.shockwave(new Vector3f(pos.x, pos.y + 0.08f, pos.z), radius() + 2.2f, 0.6f,
+                new ColorRGBA(1f, 0.72f, 0.3f, 0.5f));
+        if (hp <= 0f) {
+            die();
+            return;
+        }
+        if (!phase2 && hp < spec.hp * 0.5f) {
+            phase2 = true;
+            model.enrage();
+        }
+        state = State.KNOCKDOWN;
+        stateTime = 0f;
+        move = null;
+        airLift = 0f;
+        strikeHit = false;
     }
 
     @Override
@@ -324,26 +381,37 @@ final class WorldBoss extends Target {
             fx.shockwave(new Vector3f(pos.x, pos.y + 0.1f, pos.z), radius() + 3f, 0.6f,
                     new ColorRGBA(1f, 0.5f, 0.15f, 0.55f));
         }
-        if (poise <= 0f && state != State.STAGGER && state != State.DEAD) {
+        if (poise <= 0f && state != State.STAGGER && state != State.KNOCKDOWN
+                && state != State.DEAD) {
             poise = poiseMax;
             state = State.STAGGER;
             stateTime = 0f;
             move = null;
             airLift = 0f;
+            strikeHit = false;
+            executionLocked = false;
             fx.spark(new Vector3f(pos.x, pos.y + 1.4f, pos.z), GOLD, 24);
+            fx.shockwave(new Vector3f(pos.x, pos.y + 0.08f, pos.z), radius() + 1.6f, 0.5f,
+                    new ColorRGBA(1f, 0.86f, 0.42f, 0.45f));
         }
         if (hp <= 0f) {
-            alive = false;
-            state = State.DEAD;
-            stateTime = 0f;
-            deathTime = 0f;
-            evDied = true;
-            move = null;
-            airLift = 0f;
-            fx.shockwave(new Vector3f(pos.x, pos.y + 0.1f, pos.z), radius() + 5f, 0.8f,
-                    new ColorRGBA(1f, 0.72f, 0.3f, 0.5f));
-            fx.spark(new Vector3f(pos.x, pos.y + 1.6f, pos.z), GOLD, 46);
+            die();
         }
+    }
+
+    private void die() {
+        alive = false;
+        state = State.DEAD;
+        stateTime = 0f;
+        deathTime = 0f;
+        evDied = true;
+        move = null;
+        airLift = 0f;
+        strikeHit = false;
+        executionLocked = false;
+        fx.shockwave(new Vector3f(pos.x, pos.y + 0.1f, pos.z), radius() + 5f, 0.8f,
+                new ColorRGBA(1f, 0.72f, 0.3f, 0.5f));
+        fx.spark(new Vector3f(pos.x, pos.y + 1.6f, pos.z), GOLD, 46);
     }
 
     void update(float dt, Player player) {
@@ -361,6 +429,10 @@ final class WorldBoss extends Target {
         animTime += dt;
         hitFlash = Math.max(0f, hitFlash - dt * 4f);
         poiseDelay = Math.max(0f, poiseDelay - dt);
+        if (poseLock) {
+            model.animate(dt);
+            return;
+        }
         if (!alive) {
             deathTime += dt;
             stateTime += dt;
@@ -392,8 +464,15 @@ final class WorldBoss extends Target {
             return;
         }
         stateTime += dt;
-        yaw = MathX.lerpAngle(yaw, MathX.yawTo(pos, player.pos),
-                1f - (float) Math.exp(-(phase2 ? 8f : 6f) * dt));
+        // 出招后不再追身转向：蓄力期只能慢转，挥击/收招锁死朝向。
+        // 玩家往侧后走位就能绕开抬手，这是“能预判、能躲”的前提。
+        if (state == State.IDLE || state == State.CHASE) {
+            yaw = MathX.lerpAngle(yaw, MathX.yawTo(pos, player.pos),
+                    1f - (float) Math.exp(-(phase2 ? 8f : 6f) * dt));
+        } else if (state == State.WINDUP) {
+            yaw = MathX.lerpAngle(yaw, MathX.yawTo(pos, player.pos),
+                    1f - (float) Math.exp(-(phase2 ? 3.2f : 2.4f) * dt));
+        }
 
         switch (state) {
             case IDLE -> {
@@ -432,6 +511,7 @@ final class WorldBoss extends Target {
                 updateStrike(dt, player);
             }
             case RECOVER -> {
+                airLift = MathX.damp(airLift, 0f, 9f, dt);
                 if (stateTime >= move.recover) {
                     state = State.CHASE;
                     stateTime = 0f;
@@ -442,10 +522,19 @@ final class WorldBoss extends Target {
             }
             case STAGGER -> {
                 airLift = 0f;
-                if (stateTime >= 1.75f) {
+                // 玩家已经提交处决时冻结窗口，让 EXECUTE 的 2.3 秒演出完整播完
+                if (!executionLocked && stateTime >= STAGGER_WINDOW) {
                     state = State.CHASE;
                     stateTime = 0f;
-                    cooldown = 0.45f;
+                    cooldown = 0.6f;
+                }
+            }
+            case KNOCKDOWN -> {
+                airLift = 0f;
+                if (stateTime >= KNOCKDOWN_TIME) {
+                    state = State.CHASE;
+                    stateTime = 0f;
+                    cooldown = 1.2f;
                 }
             }
             default -> {
@@ -455,6 +544,36 @@ final class WorldBoss extends Target {
             pos.y = terrain.height(pos.x, pos.z);
         }
         model.animate(dt);
+        emitWeaponTrail();
+    }
+
+    /** 挥击帧沿真实刀尖位置撒拖尾粒子，让“刀过去了”这件事在画面上留痕。 */
+    private void emitWeaponTrail() {
+        if (state != State.STRIKE || move == null || !model.hasWeaponSpan()) {
+            return;
+        }
+        switch (move.kind) {
+            case MELEE, DASH, LEAP, FLURRY -> {
+            }
+            default -> {
+                return;
+            }
+        }
+        if (stateTime > move.active * 0.85f) {
+            return;
+        }
+        ColorRGBA color = switch (spec.archetype) {
+            case MARINER -> SPECTRAL;
+            case AVATAR -> GOLD;
+            default -> new ColorRGBA(1f, 0.86f, 0.55f, 1f);
+        };
+        fx.trail(model.weaponTipWorld(tipBuf), color, 0.42f);
+        if ((int) (animTime * 60f) % 2 == 0) {
+            fx.trail(model.weaponMidWorld(midBuf), color, 0.26f);
+        }
+        if ((int) (animTime * 60f) % 3 == 0) {
+            fx.spark(model.weaponTipWorld(pivotBuf), color, 1);
+        }
     }
 
     private void chooseMove(float dist) {
@@ -498,6 +617,16 @@ final class WorldBoss extends Target {
         tellFx(best);
     }
 
+    /** 吐息起点：龙走骨骼链，其它会喷东西的 BOSS 退回胸口高度。 */
+    private Vector3f mouthPoint() {
+        if (spec.archetype == Archetype.DRAGON) {
+            return model.mouthWorld(new Vector3f());
+        }
+        Vector3f fwd = MathX.forward(yaw);
+        return new Vector3f(pos.x + fwd.x * 2.2f, pos.y + displayHeight() * 0.68f,
+                pos.z + fwd.z * 2.2f);
+    }
+
     private void tellFx(Move m) {
         ColorRGBA color = switch (spec.archetype) {
             case DRAGON -> RED;
@@ -506,14 +635,79 @@ final class WorldBoss extends Target {
             case AVATAR -> GOLD;
             default -> spec.archetype == Archetype.MARGIT ? GOLD : new ColorRGBA(1f, 0.55f, 0.2f, 1f);
         };
+        Vector3f base = new Vector3f(pos.x, pos.y + 0.08f, pos.z);
         Vector3f top = new Vector3f(pos.x, pos.y + displayHeight() * 0.7f, pos.z);
         switch (m.kind) {
-            case AOE, SUMMON, TELEPORT -> fx.shockwave(
-                    new Vector3f(pos.x, pos.y + 0.08f, pos.z), m.radius + 1.2f, m.windup,
-                    new ColorRGBA(color.r, color.g, color.b, 0.28f));
-            case BREATH -> fx.flame(new Vector3f(pos.x, pos.y + 2.6f, pos.z), 2.0f, 6);
-            case DASH, LEAP -> fx.dust(new Vector3f(pos.x, pos.y + 0.2f, pos.z), 12);
-            default -> fx.spark(top, color, 6);
+            case AOE, SUMMON, TELEPORT -> {
+                fx.shockwave(base, m.radius + 1.2f, m.windup,
+                        new ColorRGBA(color.r, color.g, color.b, 0.28f));
+                if (spec.archetype == Archetype.AVATAR) {
+                    // 黄金树化身：脚下炸开一圈金焰，预警即“开花”。
+                    // 加法混合下满不透明的金柱会读成金板子，一圈的柱子要压透明度
+                    ColorRGBA soft = new ColorRGBA(GOLD.r, GOLD.g, GOLD.b, 0.40f);
+                    fx.firePillar(base, 2.6f, 5.4f, Math.max(0.6f, m.windup), soft);
+                    for (int i = 0; i < 8; i++) {
+                        float a = i * FastMath.TWO_PI / 8f;
+                        fx.firePillar(new Vector3f(
+                                        pos.x + FastMath.cos(a) * m.radius * 0.85f, pos.y + 0.05f,
+                                        pos.z + FastMath.sin(a) * m.radius * 0.85f),
+                                1.4f, 3.0f + (i % 3) * 0.8f, Math.max(0.55f, m.windup * 0.9f),
+                                soft);
+                        fx.ember(new Vector3f(pos.x + FastMath.cos(a) * m.radius * 0.6f,
+                                pos.y + 1.6f, pos.z + FastMath.sin(a) * m.radius * 0.6f), GOLD);
+                    }
+                } else if (spec.archetype == Archetype.MARGIT && "holy hammer".equals(m.name)) {
+                    fx.firePillar(base, 1.5f, 3.4f, m.windup * 0.95f, GOLD);
+                    for (int i = 0; i < 10; i++) {
+                        float a = i * FastMath.TWO_PI / 10f;
+                        fx.spark(new Vector3f(pos.x + FastMath.cos(a) * 2.2f, pos.y + 0.6f,
+                                pos.z + FastMath.sin(a) * 2.2f), GOLD, 2);
+                    }
+                } else if (m.kind == MoveKind.AOE && m.radius > 4f) {
+                    fx.firePillar(base, Math.max(1.0f, m.radius * 0.30f), 2.2f,
+                            Math.max(0.5f, m.windup * 0.9f),
+                            new ColorRGBA(color.r, color.g, color.b, 0.5f));
+                }
+            }
+            case BREATH -> {
+                Vector3f fwd = MathX.forward(yaw);
+                Vector3f mouth = mouthPoint();
+                // 一串逐渐压低的火团拼出火舌；单个大锥体在侧视角下会读成半透明板子
+                fx.flame(mouth, 3.6f, 46);
+                fx.ember(mouth, RED);
+                fx.ember(mouth, RED);
+                fx.ember(mouth, RED);
+                for (int i = 1; i <= 9; i++) {
+                    float d = 0.7f + i * 1.05f;
+                    float h = Math.max(0.4f, mouth.y - pos.y - i * 0.78f);
+                    Vector3f puff = new Vector3f(mouth.x + fwd.x * d, pos.y + h,
+                            mouth.z + fwd.z * d);
+                    fx.flame(puff, 1.25f + i * 0.22f, 16);
+                    if (i % 2 == 0) {
+                        fx.ember(puff, RED);
+                    }
+                }
+            }
+            case DASH, LEAP -> {
+                fx.dust(base, 16);
+                Vector3f fwd = MathX.forward(yaw);
+                for (int i = 1; i <= 4; i++) {
+                    float d = i * 3.2f;
+                    float x = pos.x + fwd.x * d;
+                    float z = pos.z + fwd.z * d;
+                    fx.dust(new Vector3f(x, terrain.height(x, z) + 0.15f, z), 5);
+                }
+            }
+            default -> {
+                fx.spark(top, color, 8);
+                if (m.kind == MoveKind.FLURRY) {
+                    Vector3f fwd = MathX.forward(yaw);
+                    for (int i = 0; i < 4; i++) {
+                        fx.ember(new Vector3f(pos.x + fwd.x * 1.6f, pos.y + 1.5f + i * 0.25f,
+                                pos.z + fwd.z * 1.6f), color);
+                    }
+                }
+            }
         }
     }
 
@@ -521,60 +715,120 @@ final class WorldBoss extends Target {
         state = State.STRIKE;
         stateTime = 0f;
         breathTimer = 0f;
-        flurryTimer = 0f;
+        flurryTimer = 0.10f;
         flurryHits = 0;
-        float dmg = move.damage * (phase2 ? 1.22f : 1f);
+        strikeHit = move.kind == MoveKind.BREATH || move.kind == MoveKind.FLURRY;
+        testMaxStep = 0f;
+        // 命中帧落在“刀真的扫到身前”的时刻，不再是起手第一帧。
+        // 玩家看到抬手的完整蓄力，再用挥击的节奏去躲，才谈得上预判。
+        strikeHitAt = switch (move.kind) {
+            case MELEE -> move.active * 0.42f;
+            // 冲锋的判定落在“冲到玩家面前”那一帧，不是在起步瞬间
+            case DASH -> move.active * 0.82f;
+            case AOE -> move.active * 0.45f;
+            case LEAP -> move.active * 0.92f;
+            case SUMMON, TELEPORT -> move.active * 0.55f;
+            case BREATH, FLURRY -> move.active;
+        };
         switch (move.kind) {
             case MELEE -> {
+                Vector3f fwd = MathX.forward(yaw);
+                fx.trail(new Vector3f(pos.x + fwd.x * move.range * 0.5f, pos.y + 1.4f,
+                        pos.z + fwd.z * move.range * 0.5f),
+                        new ColorRGBA(1f, 0.86f, 0.55f, 1f), 0.5f);
+            }
+            case DASH -> {
+                dashDir.set(player.pos.x - pos.x, 0f, player.pos.z - pos.z);
+                float d = dashDir.length();
+                if (d > 0.05f) {
+                    dashDir.multLocal(1f / d);
+                    dashDist = Math.min(move.dash, Math.max(0f, d - 2.2f));
+                } else {
+                    dashDist = 0f;
+                }
+                dashTravel = 0f;
+                dashDust = 0f;
+                fx.dust(new Vector3f(pos.x, pos.y + 0.15f, pos.z), 12);
+            }
+            case LEAP -> {
+                leapFrom.set(pos);
+                tmp.set(player.pos.x - pos.x, 0f, player.pos.z - pos.z);
+                float d = tmp.length();
+                if (d > 0.05f) {
+                    tmp.multLocal(1f / d);
+                } else {
+                    tmp.set(FastMath.sin(yaw), 0f, FastMath.cos(yaw));
+                }
+                float travel = Math.min(move.range, Math.max(0f, d - 2.4f));
+                leapTo.set(pos.x + tmp.x * travel, 0f, pos.z + tmp.z * travel);
+                if (spec.gate) {
+                    leapTo.x = MathX.clamp(leapTo.x, -440f, -315f);
+                    leapTo.z = MathX.clamp(leapTo.z, -452f, -360f);
+                }
+                if (!canStand(leapTo.x, leapTo.z)) {
+                    leapTo.set(pos);
+                }
+                fx.shockwave(new Vector3f(pos.x, pos.y + 0.08f, pos.z),
+                        move.radius * 0.6f, 0.4f,
+                        new ColorRGBA(0.7f, 0.6f, 0.45f, 0.35f));
+                fx.dust(new Vector3f(pos.x, pos.y + 0.2f, pos.z), 12);
+            }
+            case BREATH -> {
+                Vector3f fwd = MathX.forward(yaw);
+                Vector3f mouth = mouthPoint();
+                fx.flame(mouth, 3.0f, 16);
+                for (int i = 0; i < 6; i++) {
+                    float d = 1.2f + i * 1.7f;
+                    float h = Math.max(0.35f, mouth.y - pos.y - i * 1.05f);
+                    fx.flame(new Vector3f(mouth.x + fwd.x * d, pos.y + h,
+                            mouth.z + fwd.z * d), 1.1f + i * 0.25f, 10);
+                }
+                for (int i = 0; i < 4; i++) {
+                    float d = 4.5f + i * 2.6f;
+                    fx.firePillar(new Vector3f(pos.x + fwd.x * d, pos.y + 0.05f,
+                                    pos.z + fwd.z * d),
+                            1.0f, 1.5f + (i % 2) * 0.5f, 0.75f, RED);
+                }
+            }
+            case AOE, SUMMON, TELEPORT, FLURRY -> {
+            }
+        }
+    }
+
+    /** 动作真正打到身前的那一帧才结算伤害与命中特效。 */
+    private void applyStrikeHit(Player player) {
+        float dmg = move.damage * (phase2 ? 1.22f : 1f);
+        Vector3f fwd = MathX.forward(yaw);
+        switch (move.kind) {
+            case MELEE -> {
+                fx.spark(new Vector3f(pos.x + fwd.x * move.range * 0.7f, pos.y + 1.5f,
+                                pos.z + fwd.z * move.range * 0.7f),
+                        new ColorRGBA(1f, 0.85f, 0.5f, 1f), 12);
+                fx.dust(new Vector3f(pos.x + fwd.x * move.range * 0.45f, pos.y + 0.15f,
+                        pos.z + fwd.z * move.range * 0.45f), 6);
                 if (inMelee(player, move.range, move.arc)) {
                     hitPlayer(player, dmg, 0.55f);
                 }
             }
             case DASH -> {
-                tmp.set(player.pos.x - pos.x, 0f, player.pos.z - pos.z);
-                float d = tmp.length();
-                if (d > 0.01f) {
-                    tmp.multLocal(Math.min(move.dash, Math.max(0f, d - 2.2f)) / d);
-                    float nx = pos.x + tmp.x;
-                    float nz = pos.z + tmp.z;
-                    if (canStand(nx, nz)) {
-                        pos.x = nx;
-                        pos.z = nz;
-                    }
-                }
-                if (inMelee(player, 3.1f + radius(), 1.15f)) {
-                    hitPlayer(player, dmg, 0.75f);
-                }
                 fx.dust(new Vector3f(pos.x, pos.y + 0.15f, pos.z), 20);
+                fx.shockwave(new Vector3f(pos.x, pos.y + 0.08f, pos.z), radius() + 1.4f, 0.4f,
+                        new ColorRGBA(0.85f, 0.72f, 0.5f, 0.4f));
+                if (inMelee(player, 3.4f + radius(), 1.35f)) {
+                    hitPlayer(player, dmg, 0.8f);
+                }
             }
             case LEAP -> {
-                if (spec.gate) {
-                    pos.x = MathX.clamp(player.pos.x, -440f, -315f);
-                    pos.z = MathX.clamp(player.pos.z, -452f, -360f);
-                } else {
-                    float d = MathX.distXZ(pos, player.pos);
-                    if (d < move.range) {
-                        tmp.set(player.pos.x - pos.x, 0f, player.pos.z - pos.z)
-                                .normalizeLocal().multLocal(Math.max(0f, d - 2.4f));
-                        pos.x += tmp.x;
-                        pos.z += tmp.z;
-                    }
-                }
                 pos.y = terrain.height(pos.x, pos.z);
-                airLift = 0.2f;
+                airLift = 0f;
                 fx.shockwave(new Vector3f(pos.x, pos.y + 0.08f, pos.z), move.radius, 0.55f,
                         new ColorRGBA(1f, 0.62f, 0.24f, 0.5f));
                 fx.dust(new Vector3f(pos.x, pos.y + 0.15f, pos.z), 24);
                 if (MathX.distXZ(pos, player.pos) < move.radius + 0.4f) {
-                    hitPlayer(player, dmg, 0.85f);
+                    hitPlayer(player, dmg, 0.9f);
                 }
             }
-            case AOE -> {
-                fract(player, dmg);
-            }
-            case BREATH -> {
-                fx.flame(new Vector3f(pos.x, pos.y + 2.7f, pos.z), 2.6f, 12);
-            }
+            case AOE -> fract(dmg, player);
             case SUMMON -> {
                 evSummon = true;
                 fx.flame(new Vector3f(pos.x, pos.y + 0.3f, pos.z), 5.0f, 18);
@@ -583,10 +837,15 @@ final class WorldBoss extends Target {
             }
             case TELEPORT -> {
                 Vector3f behind = new Vector3f(
-                        player.pos.x - MathX.forward(player.yaw).x * 6f, 0f,
-                        player.pos.z - MathX.forward(player.yaw).z * 6f);
+                        player.pos.x - MathX.forward(player.yaw).x * 7f, 0f,
+                        player.pos.z - MathX.forward(player.yaw).z * 7f);
                 if (!canStand(behind.x, behind.z)) {
                     behind.set(pos);
+                }
+                for (int i = 0; i <= 6; i++) {
+                    float k = i / 6f;
+                    fx.trail(new Vector3f(pos.x + (behind.x - pos.x) * k,
+                            pos.y + 1.3f, pos.z + (behind.z - pos.z) * k), SPECTRAL, 0.55f);
                 }
                 fx.flash(new Vector3f(pos.x, pos.y + 1.4f, pos.z), SPECTRAL, 1.2f);
                 pos.set(behind);
@@ -594,16 +853,19 @@ final class WorldBoss extends Target {
                 fx.flash(new Vector3f(pos.x, pos.y + 1.4f, pos.z), SPECTRAL, 1.2f);
                 fx.flame(new Vector3f(pos.x, pos.y + 0.2f, pos.z), 3.2f, 12);
             }
-            case FLURRY -> {
-                flurryTick(player, dmg);
+            case BREATH, FLURRY -> {
             }
         }
     }
 
-    private void fract(Player player, float dmg) {
+    private void fract(float dmg, Player player) {
         fx.shockwave(new Vector3f(pos.x, pos.y + 0.08f, pos.z), move.radius, 0.6f,
                 new ColorRGBA(1f, 0.6f, 0.2f, 0.45f));
         fx.flame(new Vector3f(pos.x, pos.y + 0.2f, pos.z), move.radius * 0.6f, 14);
+        fx.dust(new Vector3f(pos.x, pos.y + 0.2f, pos.z), 20);
+        fx.firePillar(new Vector3f(pos.x, pos.y + 0.05f, pos.z), Math.max(1.0f, move.radius * 0.35f),
+                2.6f, 0.6f, spec.archetype == Archetype.AVATAR ? GOLD
+                        : new ColorRGBA(1f, 0.55f, 0.2f, 0.55f));
         if (MathX.distXZ(pos, player.pos) < move.radius + player.radius()) {
             hitPlayer(player, dmg, 0.9f);
         }
@@ -612,6 +874,8 @@ final class WorldBoss extends Target {
     private void updateStrike(float dt, Player player) {
         float dmg = move.damage * (phase2 ? 1.22f : 1f);
         switch (move.kind) {
+            case DASH -> updateDashTravel(dt);
+            case LEAP -> updateLeapTravel();
             case BREATH -> {
                 breathTimer -= dt;
                 if (breathTimer <= 0f) {
@@ -620,11 +884,21 @@ final class WorldBoss extends Target {
                         hitPlayer(player, dmg, 0.32f);
                     }
                     Vector3f fwd = MathX.forward(yaw);
+                    Vector3f mouth = mouthPoint();
                     for (int i = 0; i < 3; i++) {
                         float d = 3f + i * 5.2f + (float) Math.random() * 3f;
-                        fx.flame(new Vector3f(pos.x + fwd.x * d, pos.y + 0.4f,
-                                pos.z + fwd.z * d), 1.6f, 3);
+                        float h = Math.max(0.35f, mouth.y - pos.y - d * 0.42f);
+                        fx.flame(new Vector3f(mouth.x + fwd.x * d, pos.y + h,
+                                mouth.z + fwd.z * d), 1.9f, 4);
                     }
+                    if (Math.random() < 0.6) {
+                        float d = 4f + (float) Math.random() * 12f;
+                        fx.firePillar(new Vector3f(pos.x + fwd.x * d, pos.y + 0.05f,
+                                        pos.z + fwd.z * d),
+                                1.0f, 1.4f + (float) Math.random() * 0.8f, 0.45f, RED);
+                    }
+                    fx.ember(new Vector3f(mouth.x + fwd.x * 1.2f, mouth.y,
+                            mouth.z + fwd.z * 1.2f), RED);
                 }
             }
             case FLURRY -> {
@@ -638,10 +912,65 @@ final class WorldBoss extends Target {
             default -> {
             }
         }
+        if (!strikeHit) {
+            boolean now = stateTime >= strikeHitAt;
+            if (move.kind == MoveKind.DASH && !now
+                    && inMelee(player, 3.4f + radius(), 1.35f)) {
+                now = true;
+            }
+            if (now) {
+                strikeHit = true;
+                applyStrikeHit(player);
+            }
+        }
         if (stateTime >= move.active) {
             state = State.RECOVER;
             stateTime = 0f;
         }
+    }
+
+    /** 冲锋：整个 active 期间连续推进，减速收尾；没有一帧瞬移。 */
+    private void updateDashTravel(float dt) {
+        if (dashDist <= 0.01f) {
+            return;
+        }
+        float p = MathX.clamp(stateTime / Math.max(0.08f, move.active * 0.85f), 0f, 1f);
+        float want = dashDist * (1f - (1f - p) * (1f - p));
+        float step = want - dashTravel;
+        if (step > 0f) {
+            float ox = pos.x;
+            float oz = pos.z;
+            float nx = pos.x + dashDir.x * step;
+            float nz = pos.z + dashDir.z * step;
+            if (canStand(nx, nz)) {
+                pos.x = nx;
+                pos.z = nz;
+                pos.y = terrain.height(pos.x, pos.z);
+                dashTravel = want;
+            } else {
+                dashDist = dashTravel;
+            }
+            testMaxStep = Math.max(testMaxStep,
+                    (float) Math.hypot(pos.x - ox, pos.z - oz));
+        }
+        dashDust -= dt;
+        if (dashDust <= 0f) {
+            dashDust = 0.06f;
+            fx.dust(new Vector3f(pos.x, pos.y + 0.2f, pos.z), 3);
+        }
+    }
+
+    /** 起跳：抛出抛物线落点，位移随时间连续推进，落地才结算。 */
+    private void updateLeapTravel() {
+        float p = MathX.clamp(stateTime / Math.max(0.10f, move.active * 0.88f), 0f, 1f);
+        float e = p * p * (3f - 2f * p);
+        float ox = pos.x;
+        float oz = pos.z;
+        pos.x = MathX.lerp(leapFrom.x, leapTo.x, e);
+        pos.z = MathX.lerp(leapFrom.z, leapTo.z, e);
+        pos.y = terrain.height(pos.x, pos.z);
+        airLift = FastMath.sin(p * FastMath.PI) * 0.20f;
+        testMaxStep = Math.max(testMaxStep, (float) Math.hypot(pos.x - ox, pos.z - oz));
     }
 
     private void flurryTick(Player player, float dmg) {
@@ -667,11 +996,11 @@ final class WorldBoss extends Target {
 
     float cameraShake;
 
-    private boolean canStand(float x, float z) {
+    boolean canStand(float x, float z) {
         if (Math.abs(x) > WorldData.HALF - 20f || Math.abs(z) > WorldData.HALF - 20f) {
             return false;
         }
-        return terrain.height(x, z) > WorldData.WATER_Y + 0.4f
+        return terrain.depth(x, z) <= WorldData.WADE_DEPTH
                 && terrain.slope(x, z) < 1.05f;
     }
 
@@ -690,6 +1019,8 @@ final class WorldBoss extends Target {
         airLift = 0f;
         deathTime = 0f;
         yaw = 3.14f;
+        strikeHit = false;
+        executionLocked = false;
         model.resetPose();
     }
 
@@ -710,6 +1041,40 @@ final class WorldBoss extends Target {
         if (alive && available) {
             engaged = true;
         }
+    }
+
+    /** 自测/截图：按名字冻结在招式的某一时刻，只让模型摆姿势（poseLock 跳过状态机）。 */
+    Move moveNamed(String name) {
+        for (Move c : moves) {
+            if (c.name.equals(name)) {
+                return c;
+            }
+        }
+        return moves[0];
+    }
+
+    void holdPose(String moveName, State s, float t, boolean withTell) {
+        Move m = moveNamed(moveName);
+        poseLock = true;
+        engaged = true;
+        state = s;
+        move = m;
+        stateTime = t;
+        model.setVisible(true);
+        // 先摆姿势再放特效：吐息要按摆好的龙头坐标生成火团
+        model.animate(0f);
+        if (withTell) {
+            tellFx(m);
+        }
+    }
+
+    void releasePose() {
+        poseLock = false;
+        move = null;
+        stateTime = 0f;
+        state = State.CHASE;
+        cooldown = 0.8f;
+        model.resetPose();
     }
 
     void setGatePhase(boolean active) {

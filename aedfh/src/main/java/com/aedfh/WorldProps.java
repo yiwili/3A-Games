@@ -104,7 +104,16 @@ final class WorldProps {
         leafMist = lit(new ColorRGBA(0.12f, 0.23f, 0.13f, 1f), 2f);
         stone = lit(new ColorRGBA(0.240f, 0.232f, 0.210f, 1f), 4f);
         stoneDark = lit(new ColorRGBA(0.150f, 0.152f, 0.140f, 1f), 3f);
-        rock = lit(new ColorRGBA(0.185f, 0.178f, 0.162f, 1f), 3f);
+        // mossy_rock 本身已经偏暗，diffuse 再压到 0.3 就成黑石头了，这里只做轻微冷灰偏色
+        rock = lit(new ColorRGBA(0.86f, 0.88f, 0.84f, 1f), 3f);
+        Gfx.mapped(rock, am, "mossy_rock", 1.1f);
+        // 贴图原图偏暗，背光面直接黑成剪影；抬亮一档 + 提环境光，石头才读得出体块
+        var rockLit = Tex.tinted("Textures/PolyHaven/mossy_rock_diff.jpg", 512,
+                1.32f, 1.34f, 1.26f);
+        if (rockLit != null) {
+            rock.setTexture("DiffuseMap", rockLit);
+        }
+        rock.setColor("Ambient", new ColorRGBA(0.32f, 0.33f, 0.30f, 1f));
         var masonry = Tex.masonry();
         stone.setTexture("DiffuseMap", masonry);
         stoneDark.setTexture("DiffuseMap", masonry);
@@ -118,7 +127,9 @@ final class WorldProps {
 
         buildGraces();
         buildTrees();
+        buildDeadTrees();
         buildRocks();
+        buildBushes();
         buildPois();
         buildCamps();
         buildLakeRuins();
@@ -714,35 +725,175 @@ final class WorldProps {
 
     private void buildRocks() {
         BatchNode rocks = batch("rocks");
-        for (int attempt = 0; attempt < 500 && rocks.getChildren().size() < 160; attempt++) {
+        int placed = 0;
+        for (int attempt = 0; attempt < 2600 && placed < 430; attempt++) {
             float x = -660f + rnd.nextFloat() * 1320f;
             float z = -660f + rnd.nextFloat() * 1320f;
-            if (!openGround(x, z, 5f, 1.1f) || WorldData.roadDistance(x, z) < 5f) {
+            if (!openGround(x, z, 4f, 1.25f) || WorldData.roadDistance(x, z) < 4f) {
                 continue;
             }
-            float h = terrain.height(x, z);
-            float s = 0.5f + rnd.nextFloat() * 2.2f;
-            float sx = 1.25f + rnd.nextFloat() * 0.5f;
-            float sz = 0.9f + rnd.nextFloat() * 0.4f;
-            Geometry rockGeo = ball("rock", s, rock, rocks, x, h + s * 0.35f, z);
-            rockGeo.setLocalScale(sx, 0.62f, sz);
-            rockGeo.setLocalRotation(new Quaternion().fromAngles(
-                    rnd.nextFloat() * 0.5f, rnd.nextFloat() * FastMath.TWO_PI,
-                    rnd.nextFloat() * 0.5f));
-            blocker(x, h + s * 0.35f, z, s * sx, s * 0.62f, s * sz, 0f);
-            if (s > 0.85f) {
-                solid(x, h + s * 0.35f, z, s * sx * 0.88f, s * 0.62f, s * sz * 0.88f, 0f);
+            // 平方分布：小碎石多、大孤石少
+            float s = 0.30f + rnd.nextFloat() * rnd.nextFloat() * 2.1f;
+            tumble(rocks, x, z, s);
+            placed++;
+        }
+
+        // 崖脚塌积带：崖线南侧 6~24m 一排大块崩石，崖壁才有"掉下来的石头"的体量
+        for (int i = 0; i < 54; i++) {
+            float x = -560f + rnd.nextFloat() * 690f;
+            float z = WorldTerrain.scarpZ(x) + 5f + rnd.nextFloat() * 20f;
+            if (!openGround(x, z, 2f, 1.7f)) {
+                continue;
+            }
+            tumble(rocks, x, z, 1.3f + rnd.nextFloat() * 2.6f);
+        }
+
+        // 峡谷两缘的碎岩
+        for (WorldData.Gorge g : WorldData.GORGES) {
+            for (int i = 0; i < 16; i++) {
+                float t = rnd.nextFloat();
+                float px = g.x1() + (g.x2() - g.x1()) * t;
+                float pz = g.z1() + (g.z2() - g.z1()) * t;
+                float len = MathX.distXZ(new Vector3f(g.x1(), 0f, g.z1()),
+                        new Vector3f(g.x2(), 0f, g.z2()));
+                float nx = -(g.z2() - g.z1()) / len;
+                float nz = (g.x2() - g.x1()) / len;
+                float side = rnd.nextBoolean() ? 1f : -1f;
+                float off = g.halfWidth() * (0.85f + rnd.nextFloat() * 0.5f) * side;
+                float x = px + nx * off;
+                float z = pz + nz * off;
+                if (!openGround(x, z, 2f, 1.8f)) {
+                    continue;
+                }
+                tumble(rocks, x, z, 0.9f + rnd.nextFloat() * 2.2f);
+            }
+        }
+
+        // 塘岸石：水边零散几块半埋的石头，破掉"蓝色圆盘"的边
+        for (WorldData.Pond p : WorldData.PONDS) {
+            for (int i = 0; i < 7; i++) {
+                float a = rnd.nextFloat() * FastMath.TWO_PI;
+                float k = 0.92f + rnd.nextFloat() * 0.34f;
+                float x = p.x() + FastMath.sin(a) * p.rx() * k;
+                float z = p.z() + FastMath.cos(a) * p.rz() * k;
+                if (!openGround(x, z, 2f, 1.6f)) {
+                    continue;
+                }
+                tumble(rocks, x, z, 0.5f + rnd.nextFloat() * 1.1f);
             }
         }
         finish(rocks);
     }
 
+    /** 一块半埋在地里的石头：压扁 + 随机翻滚，大块登记路障与碰撞。 */
+    private void tumble(BatchNode batch, float x, float z, float s) {
+        float h = terrain.height(x, z);
+        float sx = 1.10f + rnd.nextFloat() * 0.45f;
+        float sz = 0.82f + rnd.nextFloat() * 0.36f;
+        float sy = 0.66f + rnd.nextFloat() * 0.26f;
+        float cy = h + s * sy * 0.52f;
+        Geometry g = ball("rock", s, rock, batch, x, cy, z);
+        g.setLocalScale(sx, sy, sz);
+        g.setLocalRotation(new Quaternion().fromAngles(
+                rnd.nextFloat() * 0.5f, rnd.nextFloat() * FastMath.TWO_PI,
+                rnd.nextFloat() * 0.5f));
+        blocker(x, cy, z, s * sx, s * sy, s * sz, 0f);
+        if (s > 0.85f) {
+            solid(x, cy, z, s * sx * 0.86f, s * sy, s * sz * 0.86f, 0f);
+        }
+    }
+
+    /** 灌木丛：三到五个压扁的低矮叶球，只做视觉、不挡路。 */
+    private void buildBushes() {
+        BatchNode bushes = batch("bushes");
+        Material bush = lit(new ColorRGBA(0.115f, 0.175f, 0.070f, 1f), 1f);
+        Material bushMist = lit(new ColorRGBA(0.085f, 0.145f, 0.075f, 1f), 1f);
+        Material bushDry = lit(new ColorRGBA(0.185f, 0.155f, 0.075f, 1f), 1f);
+        int placed = 0;
+        for (int attempt = 0; attempt < 4200 && placed < 880; attempt++) {
+            float x = -665f + rnd.nextFloat() * 1330f;
+            float z = -665f + rnd.nextFloat() * 1330f;
+            if (!openGround(x, z, 2f, 1.05f)) {
+                continue;
+            }
+            if (WorldData.roadDistance(x, z) < 3.2f) {
+                continue;
+            }
+            boolean mist = x > 250f && z > 210f;
+            boolean dry = z < -300f || x < -430f;
+            // 平地上灌木成簇，坡上稀疏
+            float dens = 0.35f + (terrain.slope(x, z) < 0.45f ? 0.55f : 0f)
+                    + (mist ? 0.45f : 0f);
+            if (rnd.nextFloat() > dens) {
+                continue;
+            }
+            float h = terrain.height(x, z);
+            Material mat = mist ? bushMist : (dry ? bushDry : bush);
+            float s = 0.34f + rnd.nextFloat() * 0.42f;
+            int lobes = 2 + rnd.nextInt(3);
+            for (int k = 0; k < lobes; k++) {
+                float off = s * (0.55f + rnd.nextFloat() * 0.7f);
+                float a = rnd.nextFloat() * FastMath.TWO_PI;
+                Geometry lobe = ball("bush", s * (0.7f + rnd.nextFloat() * 0.5f), mat,
+                        bushes, x + FastMath.sin(a) * off, h + s * 0.42f,
+                        z + FastMath.cos(a) * off);
+                lobe.setLocalScale(1f, 0.52f + rnd.nextFloat() * 0.2f, 1f);
+            }
+            placed++;
+        }
+        finish(bushes);
+    }
+
+    /** 枯树：风丘与雾林里的裸干枯枝，给崖线与林地加竖向剪影。 */
+    private void buildDeadTrees() {
+        BatchNode dead = batch("deadTrees");
+        Material deadBark = lit(new ColorRGBA(0.125f, 0.108f, 0.088f, 1f), 2f);
+        int placed = 0;
+        for (int attempt = 0; attempt < 1400 && placed < 46; attempt++) {
+            float x = -660f + rnd.nextFloat() * 1320f;
+            float z = -660f + rnd.nextFloat() * 1320f;
+            boolean mist = x > 240f && z > 200f;
+            boolean storm = z < WorldTerrain.scarpZ(x) + 40f;
+            if (!mist && !storm) {
+                continue;
+            }
+            if (!openGround(x, z, 9f, 0.85f) || WorldData.roadDistance(x, z) < 9f) {
+                continue;
+            }
+            float h = terrain.height(x, z);
+            float s = 0.8f + rnd.nextFloat() * 0.9f;
+            float th = (5.5f + rnd.nextFloat() * 4f) * s;
+            vertical("deadTrunk", 0.19f * s, th, deadBark, dead,
+                    x, h + th * 0.44f, z);
+            blocker(x, h + th * 0.45f, z, 0.28f * s, th * 0.5f, 0.28f * s, 0f);
+            solidRound(x, h + th * 0.5f, z, 0.26f * s, th * 0.5f);
+            int branches = 3 + rnd.nextInt(3);
+            for (int k = 0; k < branches; k++) {
+                float a = rnd.nextFloat() * FastMath.TWO_PI;
+                float up = 0.35f + rnd.nextFloat() * 0.75f;
+                float by = h + th * (0.35f + rnd.nextFloat() * 0.55f);
+                float blen = (1.1f + rnd.nextFloat() * 1.5f) * s;
+                Geometry br = new Geometry("deadBranch",
+                        new Cylinder(4, 6, 0.045f * s, 0.10f * s, blen, true, true));
+                br.setMaterial(deadBark);
+                Vector3f dir = new Vector3f(FastMath.sin(a), up, FastMath.cos(a))
+                        .normalizeLocal();
+                br.setLocalRotation(new Quaternion().lookAt(dir, Vector3f.UNIT_Y));
+                br.setLocalTranslation(x + dir.x * blen * 0.45f, by + dir.y * blen * 0.45f,
+                        z + dir.z * blen * 0.45f);
+                dead.attachChild(br);
+            }
+            placed++;
+        }
+        finish(dead);
+    }
+
+
     private boolean openGround(float x, float z, float roadGap, float maxSlope) {
         if (inCaveZone(x, z)) {
             return false;
         }
-        if (terrain.height(x, z) < WorldData.WATER_Y + 0.8f
-                || terrain.slope(x, z) > maxSlope) {
+        if (terrain.depth(x, z) > -0.8f || terrain.slope(x, z) > maxSlope) {
             return false;
         }
         for (WorldData.GraceDef g : WorldData.GRACES) {
@@ -784,6 +935,14 @@ final class WorldProps {
                 evergaol(statics, poi.x(), poi.z());
             } else if (poi.kind() == 5) {
                 well(statics, poi.x(), poi.z());
+            } else if (poi.kind() == 8) {
+                stoneCircle(statics, poi.x(), poi.z(), poi.radius());
+            } else if (poi.kind() == 9) {
+                mausoleum(statics, poi.x(), poi.z());
+            } else if (poi.kind() == 10) {
+                colossus(statics, poi.x(), poi.z());
+            } else if (poi.kind() == 11) {
+                brokenBridge(statics, poi.x(), poi.z());
             }
         }
         finish(statics);
@@ -880,6 +1039,218 @@ final class WorldProps {
                 solid(px - 2.2f, gh + 2.8f, pz, 0.6f, 2.8f, 0.6f, 0f);
                 solid(px + 2.2f, gh + 2.8f, pz, 0.6f, 2.8f, 0.6f, 0f);
             }
+        }
+    }
+
+    // ---------------------------------------------------------------- 法环式大地标
+
+    /** 风蚀石阵：九根巨石围环（两根已倒伏），中心一座祭坛。 */
+    private void stoneCircle(BatchNode p, float cx, float cz, float radius) {
+        Random r = new Random(0x51C1EL);
+        float base = terrain.height(cx, cz);
+        int count = 9;
+        for (int i = 0; i < count; i++) {
+            float a = FastMath.TWO_PI * i / count + 0.14f;
+            float d = radius * (0.58f + 0.07f * r.nextFloat());
+            float px = cx + FastMath.sin(a) * d;
+            float pz = cz + FastMath.cos(a) * d;
+            float gh = terrain.height(px, pz);
+            float hgt = 3.6f + r.nextFloat() * 3.2f;
+            boolean fallen = i == 2 || i == 6;
+            float tilt = fallen ? 1.42f : (r.nextFloat() - 0.5f) * 0.14f;
+            float y = gh + (fallen ? 0.8f : hgt * 0.5f);
+            stoneBox("menhir", 0.9f, hgt * 0.5f, 0.6f, stone, p, px, y, pz)
+                    .rotate(0f, a, tilt);
+            blocker(px, y, pz, 0.9f, fallen ? 0.8f : hgt * 0.5f, 0.6f, a);
+            solid(px, y, pz, 0.9f, fallen ? 0.8f : hgt * 0.5f, 0.6f, a);
+        }
+        stoneBox("altarBase", 2.6f, 0.5f, 1.7f, stoneDark, p, cx, base + 0.5f, cz);
+        stoneBox("altarTop", 2.2f, 0.24f, 1.4f, stone, p, cx, base + 1.24f, cz);
+        blocker(cx, base + 0.85f, cz, 2.6f, 0.85f, 1.7f, 0f);
+        solid(cx, base + 0.85f, cz, 2.6f, 0.85f, 1.7f, 0f);
+        Geometry flame = ball("altarFlame", 0.34f, goldGlow, p, cx, base + 1.75f, cz);
+        flame.setLocalScale(0.8f, 1.6f, 0.8f);
+        flame.setQueueBucket(RenderQueue.Bucket.Transparent);
+        flame.setShadowMode(RenderQueue.ShadowMode.Off);
+        for (int i = 0; i < 7; i++) {
+            float a = r.nextFloat() * FastMath.TWO_PI;
+            float d = radius * (0.25f + 0.5f * r.nextFloat());
+            float px = cx + FastMath.sin(a) * d;
+            float pz = cz + FastMath.cos(a) * d;
+            Gfx.box("menhirRubble", 0.5f + r.nextFloat() * 0.5f, 0.24f,
+                    0.4f + r.nextFloat() * 0.4f, stone, p, px,
+                    terrain.height(px, pz) + 0.2f, pz);
+        }
+    }
+
+    /** 英雄陵墓：三级台基上的柱廊主殿，屋脊塌了一半，门前两尊残像。 */
+    private void mausoleum(BatchNode p, float cx, float cz) {
+        float base = terrain.height(cx, cz);
+        stoneBox("mausPlinth0", 19f, 0.6f, 14f, stoneDark, p, cx, base + 0.6f, cz);
+        stoneBox("mausPlinth1", 16.6f, 0.55f, 12.2f, stone, p, cx, base + 1.75f, cz);
+        stoneBox("mausPlinth2", 14.2f, 0.5f, 10.4f, stone, p, cx, base + 2.8f, cz);
+        blocker(cx, base + 1.4f, cz, 19f, 1.4f, 14f, 0f);
+        solid(cx, base + 1.4f, cz, 19f, 1.4f, 14f, 0f);
+
+        float floorY = base + 3.3f;
+        float hallH = 8.2f;
+        float hallZ = cz - 1.2f;
+        stoneBox("mausHall", 9.6f, hallH, 6.4f, stone, p, cx, floorY + hallH, hallZ);
+        blocker(cx, floorY + hallH, hallZ, 9.6f, hallH, 6.4f, 0f);
+        solid(cx, floorY + hallH, hallZ, 9.6f, hallH, 6.4f, 0f);
+        // 门洞：贴在殿前的深色内凹
+        stoneBox("mausDoor", 2.2f, 3.6f, 0.5f, stoneDark, p, cx,
+                floorY + 3.6f, hallZ + 6.6f);
+        // 正面柱廊
+        for (int i = -3; i <= 3; i++) {
+            if (i == 0) {
+                continue;
+            }
+            float px = cx + i * 4.6f;
+            float pz = hallZ + 8.2f;
+            stoneCylinder("mausColumn", 0.85f, 7.4f, stone, p, px,
+                    floorY + 3.7f, pz);
+            blocker(px, floorY + 3.7f, pz, 0.85f, 3.7f, 0.85f, 0f);
+            solidRound(px, floorY + 3.7f, pz, 0.85f, 3.7f);
+        }
+        stoneBox("mausLintel", 14.4f, 0.6f, 1.1f, stone, p, cx,
+                floorY + 7.9f, hallZ + 8.2f);
+        blocker(cx, floorY + 7.9f, hallZ + 8.2f, 14.4f, 0.6f, 1.1f, 0f);
+        // 塌掉的屋脊：只留半边屋顶与几块悬着的石板
+        stoneBox("mausRoofL", 9.6f, 0.7f, 3.4f, stone, p, cx - 3.1f,
+                floorY + hallH * 2f + 0.9f, hallZ - 2.6f);
+        stoneBox("mausRoofR", 6.2f, 0.6f, 2.2f, stone, p, cx + 5.4f,
+                floorY + hallH * 2f + 0.6f, hallZ + 2.2f);
+        // 塌落的檐板：落在台基上，不是悬在半空
+        Geometry slab = stoneBox("mausRoofFall", 3.2f, 0.35f, 2.4f, stone, p,
+                cx - 4.2f, floorY + 0.35f, cz + 11.2f);
+        slab.rotate(0f, 0.5f, 0.1f);
+        // 门前残像 + 长明灯：站在台基外的神道上，不从台面里长出来
+        for (int i = -1; i <= 1; i += 2) {
+            float px = cx + i * 6.2f;
+            float pz = cz + 16.5f;
+            float gh = terrain.height(px, pz);
+            stoneBox("mausStatueBody", 1.6f, 2.9f, 1.2f, stone, p, px,
+                    gh + 2.9f, pz);
+            Geometry headG = ball("mausStatueHead", 0.85f, stone, p, px,
+                    gh + 6.7f, pz);
+            headG.setLocalScale(1f, 1.1f, 1f);
+            headG.rotate(0f, i * 0.4f, i * 0.18f);
+            blocker(px, gh + 2.9f, pz, 1.6f, 2.9f, 1.2f, 0f);
+            solid(px, gh + 2.9f, pz, 1.6f, 2.9f, 1.2f, 0f);
+            Geometry lamp = ball("mausLamp", 0.32f, blueGlow, p, px,
+                    gh + 8.0f, pz);
+            lamp.setQueueBucket(RenderQueue.Bucket.Transparent);
+            lamp.setShadowMode(RenderQueue.ShadowMode.Off);
+        }
+    }
+
+    /** 坠落巨像：半埋进土里的无头石像，断臂与巨剑散落四周。 */
+    private void colossus(BatchNode p, float cx, float cz) {
+        float base = terrain.height(cx, cz);
+        stoneBox("colossusPlinth", 12.5f, 1.4f, 9f, stoneDark, p, cx, base + 1.1f, cz);
+        blocker(cx, base + 1.1f, cz, 12.5f, 1.4f, 9f, 0f);
+        solid(cx, base + 1.1f, cz, 12.5f, 1.4f, 9f, 0f);
+        // 躯干：斜躺着，胸口以上已经没了
+        Geometry torso = stoneBox("colossusTorso", 4.6f, 3.1f, 8.2f, stone, p,
+                cx, base + 4.6f, cz - 2.4f);
+        torso.rotate(-0.22f, 0.38f, 0.20f);
+        blocker(cx, base + 4.6f, cz - 2.4f, 5.2f, 3.4f, 8.6f, 0.38f);
+        solid(cx, base + 4.6f, cz - 2.4f, 5.2f, 3.4f, 8.6f, 0.38f);
+        // 腰甲与肩甲碎块
+        stoneBox("colossusHip", 5.4f, 1.1f, 3.4f, stoneDark, p, cx + 0.4f,
+                base + 2.2f, cz + 4.6f);
+        // 滚落的头颅：落在台基东侧的地面上，不与台基体相交
+        float headX = cx + 14.8f;
+        float headZ = cz + 7.2f;
+        float headGh = terrain.height(headX, headZ);
+        Geometry head = ball("colossusHead", 3.1f, stone, p, headX,
+                headGh + 1.2f, headZ);
+        head.setLocalScale(1.1f, 0.85f, 1f);
+        head.rotate(0.3f, 0.7f, 0.2f);
+        solidRound(headX, headGh + 1.2f, headZ, 3.1f, 1.2f);
+        // 断臂：搭在西侧台基边缘
+        float armX = cx - 14.6f;
+        float armY = terrain.height(armX, cz + 2f) + 1.1f;
+        Geometry arm = stoneBox("colossusArm", 1.5f, 1.4f, 5.6f, stone, p,
+                armX, armY, cz + 2f);
+        arm.rotate(0.35f, 0.9f, 0.15f);
+        solid(armX, armY, cz + 2f, 3.4f, 1.6f, 3.4f, 0.9f);
+        // 插进台基的巨剑，护手卡在剑身上端
+        Geometry blade = stoneBox("colossusBlade", 0.9f, 0.3f, 11f, stoneDark, p,
+                cx + 5.6f, base + 5.6f, cz - 12f);
+        blade.rotate(0.42f, 0.25f, -0.12f);
+        stoneBox("colossusGuard", 2.6f, 0.5f, 0.6f, stone, p, cx + 4.1f,
+                base + 8.9f, cz - 19.5f).rotate(0.42f, 0.25f, -0.12f);
+    }
+
+    /** 断桥：横跨峡谷的高架石桥，桥心塌了一整段，桥墩直插谷底。 */
+    private void brokenBridge(BatchNode p, float cx, float cz) {
+        // 峡谷 1 的走向 (60,-120)→(140,-30)，桥沿垂直方向跨过去
+        float gx = 80f;
+        float gz = 90f;
+        float glen = (float) Math.sqrt(gx * gx + gz * gz);
+        float ux = gx / glen;
+        float uz = gz / glen;
+        float nx = uz;
+        float nz = -ux;
+        float yaw = (float) Math.atan2(nx, nz);
+        float half = 54f;
+        float rimA = terrain.height(cx + nx * half, cz + nz * half);
+        float rimB = terrain.height(cx - nx * half, cz - nz * half);
+        float deck = Math.max(rimA, rimB) + 6.5f;
+        float seg = 11.5f;
+        for (int i = -4; i <= 4; i++) {
+            if (i == 0 || i == -1) {
+                // 桥心两段整段塌掉
+                continue;
+            }
+            float px = cx + nx * i * seg;
+            float pz = cz + nz * i * seg;
+            stoneBox("bridgeDeck", seg * 0.5f, 0.85f, 4.6f, stone, p, px, deck, pz)
+                    .rotate(0f, yaw + FastMath.HALF_PI, 0f);
+            blocker(px, deck, pz, seg * 0.5f, 0.85f, 4.6f, yaw + FastMath.HALF_PI);
+            for (int k = -1; k <= 1; k += 2) {
+                float wx = px + ux * 4.1f * k;
+                float wz = pz + uz * 4.1f * k;
+                stoneBox("bridgeParapet", seg * 0.5f, 0.75f, 0.45f, stone, p,
+                        wx, deck + 1.5f, wz).rotate(0f, yaw + FastMath.HALF_PI, 0f);
+            }
+        }
+        // 桥墩：从谷底撑到桥面
+        for (int k = -1; k <= 1; k += 2) {
+            float px = cx + nx * 2.5f * seg * k;
+            float pz = cz + nz * 2.5f * seg * k;
+            float floorY = terrain.height(px, pz);
+            float hgt = Math.max(2f, deck - 0.9f - floorY);
+            stoneCylinder("bridgePier", 2.4f, hgt, stoneDark, p, px,
+                    floorY + hgt * 0.5f, pz);
+            blocker(px, floorY + hgt * 0.5f, pz, 2.4f, hgt * 0.5f, 2.4f, 0f);
+            solidRound(px, floorY + hgt * 0.5f, pz, 2.4f, hgt * 0.5f);
+            // 桥墩肩部的托座
+            stoneBox("bridgeCorbel", 4.2f, 1.1f, 4.2f, stone, p, px,
+                    deck - 1.8f, pz).rotate(0f, yaw, 0f);
+        }
+        // 两端桥台
+        for (int k = -1; k <= 1; k += 2) {
+            float px = cx + nx * half * k;
+            float pz = cz + nz * half * k;
+            float gh = terrain.height(px, pz);
+            float hgt = Math.max(1.2f, deck - gh + 1.4f);
+            stoneBox("bridgeAbutment", 6.4f, hgt * 0.5f, 6.4f, stone, p, px,
+                    gh + hgt * 0.5f, pz).rotate(0f, yaw, 0f);
+            blocker(px, gh + hgt * 0.5f, pz, 6.4f, hgt * 0.5f, 6.4f, yaw);
+            solid(px, gh + hgt * 0.5f, pz, 6.4f, hgt * 0.5f, 6.4f, yaw);
+        }
+        // 塌到谷底的桥面残块
+        for (int i = 0; i < 4; i++) {
+            float t = (i - 1.5f) * 6.5f;
+            float px = cx + nx * t;
+            float pz = cz + nz * t;
+            float gh = terrain.height(px, pz);
+            stoneBox("bridgeRubble", 3.4f, 0.7f, 2.6f, stone, p, px, gh + 0.6f, pz)
+                    .rotate(0.16f * (i - 1.5f), yaw + i, 0.1f * i);
+            blocker(px, gh + 0.6f, pz, 3.4f, 0.7f, 2.6f, yaw + i);
         }
     }
 

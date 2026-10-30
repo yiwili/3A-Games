@@ -548,6 +548,8 @@ final class Player {
     private float manaDelay;
     private float skillCycleEnd;
     private float skillTickTimer;
+    private float skillFxTimer;
+    private static final java.util.Random FX_RND = new java.util.Random(23);
     private float fireTimer;
     private float spinAngle;
     private float spinBlend;
@@ -560,6 +562,8 @@ final class Player {
     private float comboGrace;
     private final Pose attackEntry = new Pose();
     private boolean sprintingNow;
+    /** 涉水速度倍率，由 WorldApp 按脚下水深每帧设置（1=干地）。 */
+    float waterDrag = 1f;
     private final Quaternion staffSmooth = new Quaternion();
     private boolean staffReady;
     private float attackDuration;
@@ -1110,6 +1114,7 @@ final class Player {
         evChargeReady = false;
         skillCycleEnd = 0f;
         skillTickTimer = 0f;
+        skillFxTimer = 0f;
         fireTimer = 0f;
         spinAngle = 0f;
         spinBlend = 0f;
@@ -1166,6 +1171,11 @@ final class Player {
         return invuln > 0f || (state == State.ROLL && stateTime > 0.05f && stateTime < 0.37f);
     }
 
+    /** 烈焰风暴施法霸体：照常掉血，但不被打断、不击退。 */
+    boolean hyperArmor() {
+        return state == State.SKILL;
+    }
+
     boolean isRolling() {
         return state == State.ROLL;
     }
@@ -1184,6 +1194,11 @@ final class Player {
 
     float groundY() {
         return groundY;
+    }
+
+    /** 仅自测用：迈步相位。骑云期间它必须完全不动，否则腿还在走。 */
+    float walkPhaseValue() {
+        return walkPhase;
     }
 
     /** Absolute world Y of the feet (terrain plus jump arc). */
@@ -1338,6 +1353,7 @@ final class Player {
                             speed = WALK_SPEED;
                         }
                     }
+                    speed *= waterDrag;
                     tmp.set(moveDir).multLocal(moving ? speed : 0f);
                     float ctrl = airborne ? 2.6f : 14f;
                     velocity.x = MathX.damp(velocity.x, tmp.x, ctrl, dt);
@@ -1351,7 +1367,8 @@ final class Player {
                         yaw = MathX.lerpAngle(yaw, (float) Math.atan2(moveDir.x, moveDir.z),
                                 1f - (float) Math.exp(-12f * dt));
                     }
-                    if (moving && !airborne) {
+                    // 骑筋斗云时脚不迈步：走路的相位只在地面步行时推进
+                    if (moving && !airborne && !mounted) {
                         walkPhase += dt * (sprinting ? 11.5f : 8.2f);
                     }
                 }
@@ -1735,6 +1752,22 @@ final class Player {
         Vector3f base = new Vector3f(pos.x, groundY + 0.06f, pos.z);
         fx.shockwave(base, 2.6f, 0.42f, new ColorRGBA(1f, 0.38f, 0.1f, 0.45f));
         fx.flame(new Vector3f(pos.x, groundY + 0.12f, pos.z), 1.5f, 24);
+        // 起手两圈火柱：外圈宽而暗、内芯窄而亮，读作"风暴"而不是脚下着火
+        fx.firePillar(new Vector3f(pos.x, groundY, pos.z), 2.15f, 5.4f, 1.15f,
+                new ColorRGBA(1f, 0.40f, 0.08f, 0.66f));
+        fx.firePillar(new Vector3f(pos.x, groundY, pos.z), 0.95f, 6.4f, 0.9f,
+                new ColorRGBA(1f, 0.84f, 0.42f, 0.52f));
+        // 外圈六根小火柱：只有中心一根柱会被读成"脚下冒火"，环状排布才有风暴感
+        for (int i = 0; i < 6; i++) {
+            float a = i * FastMath.TWO_PI / 6f;
+            fx.firePillar(new Vector3f(pos.x + FastMath.cos(a) * 2.4f, groundY,
+                            pos.z + FastMath.sin(a) * 2.4f),
+                    0.60f, 2.5f + (i % 3) * 0.5f, 0.85f,
+                    new ColorRGBA(1f, 0.52f, 0.12f, 0.55f));
+            fx.ember(new Vector3f(pos.x + FastMath.cos(a) * 2.0f, groundY + 0.8f,
+                    pos.z + FastMath.sin(a) * 2.0f), new ColorRGBA(1f, 0.62f, 0.2f, 1f));
+        }
+        skillFxTimer = 0f;
     }
 
     private void updateSkill(float dt, boolean held, Target boss) {
@@ -1777,6 +1810,23 @@ final class Player {
                         new ColorRGBA(1f, 0.32f, 0.06f, 0.42f));
             }
         }
+        // 持续施法：火柱沿玩家半径螺旋生灭，再加一圈上升余烬，远处也能认出招式
+        skillFxTimer -= dt;
+        if (skillFxTimer <= 0f) {
+            skillFxTimer = 0.22f;
+            float ang = stateTime * 4.2f;
+            float rr = 1.22f + 0.28f * FastMath.sin(stateTime * 6.5f);
+            fx.firePillar(new Vector3f(pos.x + FastMath.cos(ang) * rr, groundY + 0.02f,
+                            pos.z + FastMath.sin(ang) * rr),
+                    0.52f + 0.16f * (stateTime % 0.9f), 2.6f, 0.5f,
+                    new ColorRGBA(1f, 0.5f + 0.2f * (stateTime % 0.6f), 0.12f, 0.5f));
+            for (int i = 0; i < 3; i++) {
+                fx.ember(new Vector3f(pos.x + (FX_RND.nextFloat() - 0.5f) * 2.2f,
+                        groundY + 0.2f + FX_RND.nextFloat() * 0.7f,
+                        pos.z + (FX_RND.nextFloat() - 0.5f) * 2.2f),
+                        new ColorRGBA(1f, 0.6f + FX_RND.nextFloat() * 0.3f, 0.18f, 0.9f));
+            }
+        }
 
         if (!held && stateTime >= skillCycleEnd) {
             finishSkill();
@@ -1804,7 +1854,7 @@ final class Player {
         evSkillHit = any;
     }
 
-    private void finishSkill() {
+    void finishSkill() {
         state = State.FREE;
         stateTime = 0f;
         velocity.set(0f, 0f, 0f);
@@ -2055,6 +2105,9 @@ final class Player {
         if (!alive || isInvulnerable()) {
             return false;
         }
+        if (hyperArmor()) {
+            return takeHitInSkill(dmg);
+        }
         if (mounted && mountHp > 0f) {
             mountHp = Math.max(0f, mountHp - dmg);
             invuln = 0.55f;
@@ -2091,13 +2144,34 @@ final class Player {
         fx.dust(new Vector3f(pos.x, worldY() + 0.15f, pos.z), 8);
         fx.spark(new Vector3f(pos.x, worldY() + 1.2f, pos.z), new ColorRGBA(0.9f, 0.2f, 0.12f, 1f), 10);
         if (hp <= 0f) {
-            alive = false;
-            state = State.DEAD;
-            stateTime = 0f;
-            velocity.set(0f, 0f, 0f);
-            evDied = true;
+            die();
         }
         return true;
+    }
+
+    /**
+     * 施法中的受击：只结算伤害与受击反馈，状态机停在 SKILL——不切 HURT、不吃击退、
+     * 连段缓冲也不清空。{@code invuln} 只压 0.18s，挡的是同一段多段攻击的连帧，不是免伤。
+     */
+    private boolean takeHitInSkill(float dmg) {
+        hp = Math.max(0f, hp - dmg);
+        evDamage = dmg;
+        evHurt = true;
+        invuln = 0.18f;
+        fx.spark(new Vector3f(pos.x, worldY() + 1.2f, pos.z),
+                new ColorRGBA(0.95f, 0.42f, 0.14f, 1f), 6);
+        if (hp <= 0f) {
+            die();
+        }
+        return true;
+    }
+
+    private void die() {
+        alive = false;
+        state = State.DEAD;
+        stateTime = 0f;
+        velocity.set(0f, 0f, 0f);
+        evDied = true;
     }
 
     private void updateVisuals(float dt, float motion) {
@@ -2111,7 +2185,9 @@ final class Player {
 
         switch (state) {
             case FREE -> {
-                if (airborne) {
+                if (mounted) {
+                    bob = ridingPose(motion);
+                } else if (airborne) {
                     bob = airbornePose();
                 } else if (landTimer > 0f) {
                     bob = landingPose();
@@ -2294,6 +2370,46 @@ final class Player {
         pose.sz = -0.12f - 0.05f * motion - s * 0.04f * motion;
         pose.crouch = 0.012f + Math.abs(c) * 0.024f * motion + (run ? 0.028f : 0f);
         return Math.abs(c) * 0.045f * motion + (run ? 0.02f : 0f);
+    }
+
+    /**
+     * 站在筋斗云上的姿态：前后脚半蹲踩云，双腿全程锁死（不读 walkPhase），
+     * 速度与转向只由躯干、手臂、头部的低频摆动表现。
+     */
+    private float ridingPose(float motion) {
+        pose.set(REST);
+        float sway = FastMath.sin(animTime * 1.35f);
+        float sway2 = FastMath.cos(animTime * 1.09f);
+        float lean = 0.06f + 0.22f * motion;
+
+        pose.lrx = -0.40f;
+        pose.lrz = 0.17f;
+        pose.lrk = 0.60f;
+        pose.lra = -0.18f;
+        pose.llx = 0.32f;
+        pose.llz = -0.17f;
+        pose.llk = 0.50f;
+        pose.lla = -0.10f;
+
+        pose.tx = lean;
+        pose.ty = sway * 0.05f;
+        pose.tz = sway2 * 0.035f;
+        pose.hx = -0.06f - 0.06f * motion;
+        pose.hy = -pose.ty * 0.8f;
+        pose.hz = -pose.tz * 0.7f;
+
+        pose.arx = -0.06f - 0.30f * motion;
+        pose.arz = 0.52f + 0.18f * motion;
+        pose.erx = -0.58f;
+        pose.wrx = 0.06f;
+        pose.alx = 0.02f - 0.24f * motion;
+        pose.alz = -0.46f - 0.18f * motion;
+        pose.elx = -0.52f;
+
+        pose.sx = -0.30f - 0.16f * motion;
+        pose.sz = -0.34f;
+        pose.crouch = 0.055f + 0.02f * motion;
+        return sway * 0.008f - 0.012f * motion;
     }
 
     private float airbornePose() {
@@ -2499,7 +2615,7 @@ final class Player {
         setRot(capeR1, gust + FastMath.sin(t * 5.1f + 0.35f) * 0.06f, 0f, -0.05f);
         setRot(capeR2, 0.1f + gust * 0.45f + FastMath.sin(t * 5.1f + 1.15f) * 0.09f, 0f, -0.03f);
 
-        float stride = FastMath.sin(walkPhase) * motion;
+        float stride = mounted ? 0f : FastMath.sin(walkPhase) * motion;
         setRot(skirt[0], -0.08f - stride * 0.1f, 0f, 0.06f + stride * 0.03f);
         setRot(skirt[1], -0.08f + stride * 0.1f, 0f, -0.06f + stride * 0.03f);
         setRot(skirt[2], 0.15f + pace * 0.3f + FastMath.sin(t * 4.2f) * 0.04f, 0f, 0.05f);

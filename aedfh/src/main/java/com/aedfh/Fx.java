@@ -4,6 +4,7 @@ import com.jme3.asset.AssetManager;
 import com.jme3.material.Material;
 import com.jme3.material.RenderState;
 import com.jme3.math.ColorRGBA;
+import com.jme3.math.FastMath;
 import com.jme3.math.Vector3f;
 import com.jme3.renderer.queue.RenderQueue;
 import com.jme3.scene.Geometry;
@@ -33,9 +34,22 @@ final class Fx {
         float baseScale;
     }
 
+    /** 火柱：一层旋转的锥形壳，加色混合，半径呼吸 + 高度先冲高后回缩。 */
+    private static final class Column {
+        Geometry geo;
+        Material material;
+        ColorRGBA color;
+        float life;
+        float maxLife;
+        float radius;
+        float height;
+        float spin;
+    }
+
     private final AssetManager am;
     private final Node root;
     private final List<Particle> particles = new ArrayList<>();
+    private final List<Column> columns = new ArrayList<>();
     private final Texture2D puffTex;
     private static final float TRAIL_LIFE = 0.07f;
     private static final int MAX_TRAIL = 160;
@@ -106,7 +120,7 @@ final class Fx {
             Particle q;
             if (ember) {
                 p = new Vector3f(center.x + cos * r,
-                        0.35f + rnd.nextFloat() * 0.85f,
+                        center.y + 0.35f + rnd.nextFloat() * 0.85f,
                         center.z + sin * r);
                 ColorRGBA c = new ColorRGBA(1f, 0.74f + rnd.nextFloat() * 0.2f,
                         0.26f + rnd.nextFloat() * 0.16f, 0.85f);
@@ -122,7 +136,7 @@ final class Fx {
                 float h = rnd.nextFloat();
                 h *= h;
                 p = new Vector3f(center.x + cos * r,
-                        0.05f + h * 1.05f,
+                        center.y + 0.05f + h * 1.05f,
                         center.z + sin * r);
                 ColorRGBA c = new ColorRGBA(1f, 0.2f + rnd.nextFloat() * 0.3f,
                         0.02f + rnd.nextFloat() * 0.06f, 0.58f);
@@ -140,6 +154,49 @@ final class Fx {
         }
     }
 
+    /**
+     * 旋转火柱：世界坐标 {@code base} 起、高 {@code height} 的锥形壳。开放两端、加色混合，
+     * 每帧绕 Y 自转并按 (半径, 高度) 呼吸；烈焰风暴与 Boss 光柱都走这一套。
+     */
+    void firePillar(Vector3f base, float radius, float height, float duration, ColorRGBA color) {
+        // 3 段轴采样的三角柱在近景会读成金板子，柱面要足够圆
+        Mesh mesh = new com.jme3.scene.shape.Cylinder(6, 24, 0.45f, 1f, 1f, false, false);
+        Geometry geo = new Geometry("firePillar", mesh);
+        Material m = new Material(am, "Common/MatDefs/Misc/Unshaded.j3md");
+        m.setTexture("ColorMap", puffTex);
+        m.setColor("Color", color);
+        m.getAdditionalRenderState().setBlendMode(RenderState.BlendMode.AlphaAdditive);
+        m.getAdditionalRenderState().setDepthWrite(false);
+        m.getAdditionalRenderState().setFaceCullMode(RenderState.FaceCullMode.Off);
+        geo.setMaterial(m);
+        geo.setLocalTranslation(base.x, base.y + height * 0.5f, base.z);
+        geo.setLocalScale(radius, height, radius);
+        geo.setQueueBucket(RenderQueue.Bucket.Transparent);
+        geo.setShadowMode(RenderQueue.ShadowMode.Off);
+        root.attachChild(geo);
+
+        Column c = new Column();
+        c.geo = geo;
+        c.material = m;
+        c.color = color.clone();
+        c.life = duration;
+        c.maxLife = duration;
+        c.radius = radius;
+        c.height = height;
+        c.spin = 2.2f + rnd.nextFloat() * 1.6f;
+        columns.add(c);
+    }
+
+    void firePillar(Vector3f base, float radius, float height, float duration) {
+        firePillar(base, radius, height, duration, new ColorRGBA(1f, 0.42f, 0.10f, 0.62f));
+    }
+
+
+    /** 存活的特效对象数（断言用：柱子 + 粒子）。 */
+    int activeFx() {
+        return columns.size() + particles.size();
+    }
+
     void shockwave(Vector3f pos, float radius, float duration, ColorRGBA color) {
         Geometry geo = new Geometry("shockwave", new com.jme3.scene.shape.Cylinder(2, 48, 1f, 0.02f, true));
         geo.rotate(-com.jme3.math.FastMath.HALF_PI, 0f, 0f);
@@ -148,6 +205,30 @@ final class Fx {
         geo.setLocalTranslation(pos.x, 0.04f, pos.z);
         geo.setQueueBucket(com.jme3.renderer.queue.RenderQueue.Bucket.Transparent);
         geo.setShadowMode(com.jme3.renderer.queue.RenderQueue.ShadowMode.Off);
+        root.attachChild(geo);
+
+        Particle p = new Particle();
+        p.geometry = geo;
+        p.material = mat;
+        p.color = color.clone();
+        p.velocity = new Vector3f();
+        p.life = duration;
+        p.maxLife = duration;
+        p.gravity = 0f;
+        p.growth = radius;
+        p.baseScale = 0.2f;
+        particles.add(p);
+    }
+
+    /** 水面涟漪：与 shockwave 同一套粒子，但用传入的 y（shockwave 固定在 y=0.04，只能铺平地）。 */
+    void ripple(Vector3f pos, float radius, float duration, ColorRGBA color) {
+        Geometry geo = new Geometry("ripple", new com.jme3.scene.shape.Cylinder(2, 40, 1f, 0.015f, true));
+        geo.rotate(-com.jme3.math.FastMath.HALF_PI, 0f, 0f);
+        Material mat = Gfx.translucent(am, color);
+        geo.setMaterial(mat);
+        geo.setLocalTranslation(pos.x, pos.y, pos.z);
+        geo.setQueueBucket(RenderQueue.Bucket.Transparent);
+        geo.setShadowMode(RenderQueue.ShadowMode.Off);
         root.attachChild(geo);
 
         Particle p = new Particle();
@@ -363,7 +444,38 @@ final class Fx {
         return p;
     }
 
+    /** 清掉遗留特效（换区/取景时用），避免上一场战斗的火柱串进镜头。 */
+    void clear() {
+        for (Particle p : particles) {
+            p.geometry.removeFromParent();
+        }
+        for (Column c : columns) {
+            c.geo.removeFromParent();
+        }
+        particles.clear();
+        columns.clear();
+    }
+
     void update(float dt) {
+        for (int i = columns.size() - 1; i >= 0; i--) {
+            Column c = columns.get(i);
+            c.life -= dt;
+            if (c.life <= 0f) {
+                c.geo.removeFromParent();
+                columns.remove(i);
+                continue;
+            }
+            float t = 1f - c.life / c.maxLife;
+            float grow = MathX.smooth(Math.min(1f, t * 5.5f));
+            float fade = 1f - MathX.smooth(Math.max(0f, (t - 0.45f) / 0.55f));
+            float pulse = 0.86f + 0.14f * FastMath.sin(t * 22f + c.spin);
+            c.geo.rotate(0f, c.spin * dt, 0f);
+            float sx = c.radius * grow * fade * pulse;
+            float sy = c.height * (0.30f + 0.70f * grow) * (0.55f + 0.45f * fade);
+            c.geo.setLocalScale(Math.max(0.02f, sx), Math.max(0.05f, sy), Math.max(0.02f, sx));
+            float a = c.color.a * fade * 0.85f;
+            c.material.setColor("Color", new ColorRGBA(c.color.r, c.color.g, c.color.b, a));
+        }
         for (int i = particles.size() - 1; i >= 0; i--) {
             Particle p = particles.get(i);
             p.life -= dt;

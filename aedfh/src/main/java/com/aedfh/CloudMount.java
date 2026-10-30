@@ -15,6 +15,8 @@ import com.jme3.scene.shape.Sphere;
 /** 筋斗云: a summoned somersault cloud with Torrent's movement rules. */
 final class CloudMount {
 
+    private static final float DASH_TIME = 0.45f;
+
     private final Node root = new Node("somersaultCloud");
     private final Node puffs = new Node("puffs");
     private final Geometry[] lobes = new Geometry[9];
@@ -25,6 +27,7 @@ final class CloudMount {
     private float time;
     private float summon = 1f;
     private float trailTimer;
+    private float dashT;
     private boolean visible;
 
     CloudMount(AssetManager am, Node parent, Fx fx) {
@@ -77,6 +80,22 @@ final class CloudMount {
                 new ColorRGBA(0.72f, 0.85f, 1f, 0.4f));
     }
 
+    /** 腾云冲刺：云体前冲拉长 + 尾迹，同样只在可见时有效。 */
+    void dash() {
+        if (!visible) {
+            return;
+        }
+        dashT = DASH_TIME;
+        trailTimer = 0f;
+        Vector3f p = root.getWorldTranslation();
+        fx.spark(p.clone(), new ColorRGBA(0.86f, 0.94f, 1f, 1f), 26);
+        fx.shockwave(p.clone(), 3.2f, 0.42f, new ColorRGBA(0.78f, 0.9f, 1f, 0.45f));
+    }
+
+    boolean dashing() {
+        return dashT > 0f;
+    }
+
     void update(float dt, Player player, boolean moving, boolean sprinting, Fx fx) {
         time += dt;
         if (!visible) {
@@ -84,6 +103,8 @@ final class CloudMount {
         }
         root.setCullHint(Spatial.CullHint.Never);
         summon = Math.min(1f, summon + dt * 3.6f);
+        dashT = Math.max(0f, dashT - dt);
+        float surge = MathX.smooth(dashT / DASH_TIME);
         float pop = 1f + 0.22f * FastMath.sin(summon * FastMath.PI) * (1f - summon);
         float ground = player.worldY();
         float bob = FastMath.sin(time * 2.6f) * 0.045f;
@@ -91,8 +112,9 @@ final class CloudMount {
         tmp.set(player.pos.x, ground - (player.mounted ? 0.20f : 0.02f) + hover,
                 player.pos.z);
         root.setLocalTranslation(tmp);
-        root.setLocalScale(pop * 0.68f, 0.92f + 0.08f * FastMath.sin(time * 3.2f),
-                pop * 0.68f);
+        root.setLocalScale(pop * 0.68f * (1f + 0.28f * surge),
+                0.92f + 0.08f * FastMath.sin(time * 3.2f) - 0.12f * surge,
+                pop * 0.68f * (1f + 0.28f * surge));
         root.rotate(0f, dt * (moving ? (sprinting ? 1.5f : 0.8f) : 0.25f), 0f);
         for (int i = 0; i < lobes.length; i++) {
             float wobble = FastMath.sin(time * (2.2f + i * 0.13f) + phase[i]);
@@ -102,8 +124,11 @@ final class CloudMount {
                     0.68f + 0.08f * wobble);
         }
         trailTimer -= dt;
-        if (moving && trailTimer <= 0f) {
-            trailTimer = sprinting ? 0.06f : 0.13f;
+        if (surge > 0f) {
+            trailTimer = Math.min(trailTimer, 0.02f);
+        }
+        if ((moving || surge > 0f) && trailTimer <= 0f) {
+            trailTimer = sprinting || surge > 0f ? 0.06f : 0.13f;
             fx.dust(new Vector3f(player.pos.x, player.worldY() + 0.12f, player.pos.z), 2);
         }
     }

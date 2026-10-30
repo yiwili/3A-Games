@@ -57,6 +57,7 @@ final class WorldMob extends Target {
     private float idleWait;
     private float patrolAngle;
     private boolean aggro;
+    private boolean pinned;
 
     boolean evDied;
     boolean evAttack;
@@ -378,7 +379,7 @@ final class WorldMob extends Target {
         flash = Math.max(0f, flash - dt * 5f);
         stateTime += dt;
         float dist = MathX.distXZ(pos, player.pos);
-        if (!player.alive) {
+        if (!player.alive || pinned) {
             aggro = false;
         } else if (dist < 21f) {
             aggro = true;
@@ -451,7 +452,7 @@ final class WorldMob extends Target {
             }
         }
         yaw = MathX.lerpAngle(yaw, face, 1f - (float) Math.exp(-10f * dt));
-        if (dist > 90f) {
+        if (dist > 90f && !pinned) {
             pos.set(spawn);
             aggro = false;
             state = State.IDLE;
@@ -469,7 +470,7 @@ final class WorldMob extends Target {
         if (Math.abs(nx) > WorldData.HALF - 30f || Math.abs(nz) > WorldData.HALF - 30f) {
             return;
         }
-        if (terrain.height(nx, nz) < WorldData.WATER_Y + 0.35f) {
+        if (terrain.depth(nx, nz) > WorldData.WADE_DEPTH * 0.8f) {
             return;
         }
         if (terrain.slope(nx, nz) > 0.95f) {
@@ -638,6 +639,8 @@ final class WorldMob extends Target {
 
     /** 离屏画廊专用：把杂兵钉在指定位置，免得巡逻/仇恨把取景搅乱。 */
     void pinForShot(float x, float z, float faceYaw) {
+        // 钉住后不能再吃 90m 脱战回巢，否则刚挪走就被 update 拉回出生点
+        pinned = true;
         pos.set(x, terrain.height(x, z), z);
         yaw = faceYaw;
         state = State.IDLE;
@@ -646,6 +649,12 @@ final class WorldMob extends Target {
         root.setCullHint(Spatial.CullHint.Never);
         root.setLocalTranslation(pos.x, pos.y, pos.z);
         root.setLocalRotation(new Quaternion().fromAngleAxis(yaw, Vector3f.UNIT_Y));
+    }
+
+    /** 同样用于截图：直接藏起来，免得杂兵走进特写。 */
+    void hideForShot() {
+        pinned = true;
+        root.setCullHint(Spatial.CullHint.Always);
     }
 
     int runeReward() {

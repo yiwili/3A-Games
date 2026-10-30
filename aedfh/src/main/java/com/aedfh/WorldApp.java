@@ -62,6 +62,14 @@ public final class WorldApp extends SimpleApplication {
     /** 玩家碰撞圆盘半径（XZ）与"站不住"的坡度阈值（与 standable 共用）。 */
     private static final float PLAYER_RADIUS = 0.45f;
     private static final float SLIDE_SLOPE = 1.15f;
+    /** 涉水时脚下一圈涟漪的间隔（秒）。 */
+    private static final float RIPPLE_INTERVAL = 0.42f;
+    private float rippleT;
+
+    /** 筋斗云专属动作「腾云冲刺」：0.36s 内前冲约 14m，冷却 4.5s。 */
+    private static final float CLOUD_DASH_TIME = 0.36f;
+    private static final float CLOUD_DASH_SPEED = 40f;
+    private static final float CLOUD_DASH_CD = 4.5f;
 
     private final boolean worldTest;
     private final boolean worldShots;
@@ -89,6 +97,7 @@ public final class WorldApp extends SimpleApplication {
     private final SaveData previewSave = new SaveData(0);
     private WorldBoss gateBoss;
     private Target lockedTarget;
+    private Target execTarget;
     private WorldBoss shownBoss;
     private WorldData.GraceDef currentGrace;
 
@@ -100,6 +109,7 @@ public final class WorldApp extends SimpleApplication {
     private DirectionalLight sun;
     private DirectionalLight rim;
     private DirectionalLight fill;
+    private DirectionalLight shotFill;
     private AmbientLight ambient;
     private PointLight lantern;
     private FogFilter fog;
@@ -132,6 +142,9 @@ public final class WorldApp extends SimpleApplication {
     private float titleTime;
     private float autoSaveTimer = AUTOSAVE;
     private float victoryTimer;
+    private float cloudDashCd;
+    private float cloudDashT;
+    private final Vector3f cloudDashDir = new Vector3f();
     private float hourCheck;
     private boolean lastNight;
     private float locationCheck;
@@ -153,6 +166,27 @@ public final class WorldApp extends SimpleApplication {
     private boolean gateActive;
     private WorldBoss titleBoss;
 
+    // ---- 启动加载：后台烘焙 + 渲染线程分步装配 + GUI 加载动画 ----
+    private static final float BAKE_SHARE = 0.42f;
+    private static final String[] LOAD_STEPS = {
+            "正在铺设宁姆格福的大地…",
+            "正在安置崖石与草木…",
+            "正在唤醒褪色者…",
+            "正在点亮黄金树的天光…",
+            "正在编排首领与游魂…",
+            "正在开辟洞窟与赐福…",
+            "正在展开地图与存档…"
+    };
+    private LoadScreen loadScreen;
+    private WorldTerrain.Bake terrainBake;
+    private volatile Throwable bakeError;
+    private boolean bakeReady;
+    private boolean loading;
+    private boolean stageAnnounced;
+    private int loadStage = 1;
+    private float finishHold;
+    private long loadStartMs;
+
     // 开局试炼洞窟：玩家必须先打赢顽石猿王才能离开出生点
     private static final float CAVE_X = 0f;
     private static final float CAVE_Z = 348f;
@@ -171,6 +205,7 @@ public final class WorldApp extends SimpleApplication {
     private final Vector3f shotAim = new Vector3f();
     private final Vector3f shotOff = new Vector3f();
     private WorldBoss shotTrack;
+    private boolean poseShotMode;
     private static final String[] GALLERY = {"tree-sentinel", "darriwil", "tibia", "avatar",
             "nights-cavalry", "deathbird", "bell-hunter", "godrick"};
 
@@ -179,7 +214,12 @@ public final class WorldApp extends SimpleApplication {
     private float testWallZ;
     private float testSteepY;
     private float testSteepSlope;
+    private float testWadeDepth;
+    private float testPondShore;
     private float testStartZ;
+    private float testRidePhase;
+    private float testDashX;
+    private float testDashZ;
     private float testApeHp;
     private float testHpMax;
     private int testLevel;
@@ -188,6 +228,8 @@ public final class WorldApp extends SimpleApplication {
     private float testLostX;
     private float testLostZ;
     private int testLostRunes;
+    private float testSkillHp;
+    private int testSkillFx;
     private boolean testBossKilled;
 
     private double perfTickMs;
@@ -248,30 +290,137 @@ public final class WorldApp extends SimpleApplication {
         cam.setFrustumPerspective(55f, 1280f / 720f, 0.12f, 4200f);
         viewPort.setBackgroundColor(new ColorRGBA(0.015f, 0.017f, 0.024f, 1f));
 
-        terrain = new WorldTerrain(assetManager);
-        rootNode.attachChild(terrain.node());
-        props = new WorldProps(assetManager, rootNode, terrain);
-        collision = new WorldCollision(props.solids(), props.solidRounds(), PLAYER_RADIUS);
-        fx = new Fx(assetManager, rootNode);
-        player = new Player(assetManager, rootNode, fx);
-        cloud = new CloudMount(assetManager, rootNode, fx);
-        rig = new CameraRig(cam);
-        rig.setGroundSampler(terrain::height);
-        hud = new WorldHud(assetManager, guiNode, terrain.mapTexture());
+        if (headless && System.getProperty("aedfh.staged") == null) {
+            // 离屏自测走同步装配：帧号、截图序号必须和没有加载屏时完全一致。
+            long t0 = System.currentTimeMillis();
+            terrainBake = WorldTerrain.bake();
+            System.out.println("[LOAD] bake " + (System.currentTimeMillis() - t0) + " ms");
+            for (int step = 1; step <= LOAD_STEPS.length; step++) {
+                t0 = System.currentTimeMillis();
+                loadStep(step);
+                System.out.println("[LOAD] " + LOAD_STEPS[step - 1] + " "
+                        + (System.currentTimeMillis() - t0) + " ms");
+            }
+            loading = false;
+            return;
+        }
 
-        player.setArenaBounds(false);
-        player.reset(new Vector3f(WorldData.SPAWN.x(), 0f, WorldData.SPAWN.z()), saveYaw());
-        player.setGroundY(terrain.height(player.pos.x, player.pos.z));
-        player.setVisible(false);
-        player.mountMaxHp = 160f;
-        player.mountHp = 160f;
+        loadStartMs = System.currentTimeMillis();
+        loading = true;
+        bakeThread().start();
+        loadScreen = new LoadScreen(assetManager, guiNode, cam);
+    }
 
-        setupLights();
-        setupPost();
-        buildBosses();
-        buildMobs();
-        buildLostRunes();
-        buildFogWall();
+    /** 地形贴图的纯 CPU 烘焙放到后台线程，主线程只负责画加载动画。 */
+    private Thread bakeThread() {
+        Thread th = new Thread(() -> {
+            try {
+                terrainBake = WorldTerrain.bake();
+            } catch (Throwable ex) {
+                bakeError = ex;
+            }
+        }, "limgrave-bake");
+        th.setDaemon(true);
+        th.setPriority(Thread.NORM_PRIORITY - 1);
+        return th;
+    }
+
+    private void tickLoading(float tpf) {
+        if (bakeError != null) {
+            throw new RuntimeException("terrain bake failed", bakeError);
+        }
+        if (loadScreen == null) {
+            return;
+        }
+        if (!bakeReady) {
+            if (terrainBake == null) {
+                loadScreen.update(tpf, WorldTerrain.bakeProgress() * BAKE_SHARE,
+                        "正在烘焙地形与地表权重…");
+                return;
+            }
+            bakeReady = true;
+        }
+        if (finishHold > 0f) {
+            finishHold -= tpf;
+            loadScreen.update(tpf, 1f, "即将进入宁姆格福…");
+            if (finishHold <= 0f) {
+                finishLoading();
+            }
+            return;
+        }
+        int step = loadStage;
+        if (!stageAnnounced) {
+            // 先把这一阶段的名字画出来，下一帧再干这段重活：冻结期间用户看到的是正确的阶段。
+            float done = (step - 1) / (float) LOAD_STEPS.length;
+            loadScreen.update(tpf, BAKE_SHARE + (1f - BAKE_SHARE) * done,
+                    LOAD_STEPS[step - 1]);
+            stageAnnounced = true;
+            return;
+        }
+        long t0 = System.currentTimeMillis();
+        loadStep(step);
+        System.out.println("[LOAD] " + LOAD_STEPS[step - 1] + " "
+                + (System.currentTimeMillis() - t0) + " ms");
+        stageAnnounced = false;
+        loadStage = step + 1;
+        if (loadStage > LOAD_STEPS.length) {
+            finishHold = 0.5f;
+        }
+    }
+
+    private void finishLoading() {
+        loading = false;
+        loadScreen.close();
+        loadScreen = null;
+        System.out.println("[AEDFH] load complete in "
+                + (System.currentTimeMillis() - loadStartMs) + " ms");
+    }
+
+    /** 分步装配；离屏模式在 simpleInitApp 里一次跑完，交互模式由 tickLoading 每帧推进一步。 */
+    private void loadStep(int step) {
+        switch (step) {
+            case 1 -> {
+                terrain = new WorldTerrain(assetManager, terrainBake);
+                rootNode.attachChild(terrain.node());
+                // 权重图已经上传成纹素，原始 BufferedImage 不再需要
+                terrainBake = null;
+            }
+            case 2 -> {
+                props = new WorldProps(assetManager, rootNode, terrain);
+                collision = new WorldCollision(props.solids(), props.solidRounds(), PLAYER_RADIUS);
+            }
+            case 3 -> {
+                fx = new Fx(assetManager, rootNode);
+                player = new Player(assetManager, rootNode, fx);
+                cloud = new CloudMount(assetManager, rootNode, fx);
+                rig = new CameraRig(cam);
+                rig.setGroundSampler(terrain::height);
+                hud = new WorldHud(assetManager, guiNode, terrain.mapTexture());
+
+                player.setArenaBounds(false);
+                player.reset(new Vector3f(WorldData.SPAWN.x(), 0f, WorldData.SPAWN.z()), saveYaw());
+                player.setGroundY(terrain.height(player.pos.x, player.pos.z));
+                player.setVisible(false);
+                player.mountMaxHp = 160f;
+                player.mountHp = 160f;
+            }
+            case 4 -> {
+                setupLights();
+                setupPost();
+            }
+            case 5 -> buildBosses();
+            case 6 -> {
+                buildMobs();
+                buildLostRunes();
+                buildFogWall();
+                buildCave();
+            }
+            case 7 -> finalizeWorld();
+            default -> throw new IllegalStateException("unknown load step " + step);
+        }
+    }
+
+    private void buildCave() {
         caveFloorY = terrain.height(CAVE_X, CAVE_Z);
         caveBoulder = props.buildCave(CAVE_X, CAVE_Z, caveFloorY);
         for (int i = 0; i < 4; i++) {
@@ -291,7 +440,9 @@ public final class WorldApp extends SimpleApplication {
         if (caveGraceNode != null) {
             caveGraceNode.setCullHint(Spatial.CullHint.Always);
         }
+    }
 
+    private void finalizeWorld() {
         targets.addAll(mobs);
         targets.addAll(bosses);
         // Boss.setTargets holds a private COPY of this list; the ape must be in it
@@ -347,6 +498,15 @@ public final class WorldApp extends SimpleApplication {
 
         ambient = new AmbientLight(new ColorRGBA(0.17f, 0.18f, 0.20f, 1f));
         rootNode.addLight(ambient);
+
+        if (worldShots) {
+            // 画廊太阳方向固定，背光机位下盔甲/斧刃会整块发黑。
+            // 这盏补光跟着机位走（方向恒为 机位→被摄物），只在截图模式存在。
+            shotFill = new DirectionalLight();
+            shotFill.setColor(new ColorRGBA(0.96f, 0.91f, 0.82f, 1f).multLocal(0.34f));
+            shotFill.setDirection(new Vector3f(0f, -0.6f, -0.8f).normalizeLocal());
+            rootNode.addLight(shotFill);
+        }
 
         lantern = new PointLight();
         lantern.setColor(new ColorRGBA(1f, 0.68f, 0.36f, 1f).multLocal(0.6f));
@@ -438,8 +598,7 @@ public final class WorldApp extends SimpleApplication {
         for (Object[] row : spawns) {
             float x = (Float) row[0];
             float z = (Float) row[1];
-            if (terrain.height(x, z) < WorldData.WATER_Y + 0.45f
-                    || terrain.slope(x, z) > 0.9f) {
+            if (terrain.depth(x, z) > 0.3f || terrain.slope(x, z) > 0.9f) {
                 continue;
             }
             mobs.add(new WorldMob(assetManager, rootNode, fx, terrain,
@@ -609,7 +768,12 @@ public final class WorldApp extends SimpleApplication {
             case "skill" -> {
                 keySkill = true;
                 if (canControl()) {
-                    player.requestSkill();
+                    // 骑筋斗云时 F 改吃专属动作：地面上那套棍法战技在云上用不出来
+                    if (player.mounted) {
+                        cloudDash();
+                    } else {
+                        player.requestSkill();
+                    }
                 }
             }
             case "item" -> {
@@ -1515,6 +1679,7 @@ public final class WorldApp extends SimpleApplication {
         }
         if (player.mounted) {
             player.setMounted(false);
+            cloudDashT = 0f;
             cloud.burst();
             cloud.show(false);
             hud.toast("筋斗云已散去");
@@ -1530,6 +1695,57 @@ public final class WorldApp extends SimpleApplication {
         cloud.update(0f, player, false, false, fx);
         cloud.burst();
         hud.toast("筋斗云 · 唤出");
+    }
+
+    /** 筋斗云专属动作：按当前输入方向（无输入则朝角色面向）向前猛冲一段。 */
+    private void cloudDash() {
+        if (!player.mounted || !player.alive || cloudDashCd > 0f) {
+            return;
+        }
+        float moveF = (keyFwd ? 1f : 0f) - (keyBack ? 1f : 0f);
+        float moveR = (keyRight ? 1f : 0f) - (keyLeft ? 1f : 0f);
+        float yaw = rig.yaw();
+        cloudDashDir.set(FastMath.sin(yaw) * moveF - FastMath.cos(yaw) * moveR, 0f,
+                FastMath.cos(yaw) * moveF + FastMath.sin(yaw) * moveR);
+        if (cloudDashDir.lengthSquared() < 0.01f) {
+            cloudDashDir.set(MathX.forward(player.yaw));
+        } else {
+            cloudDashDir.normalizeLocal();
+        }
+        player.yaw = (float) Math.atan2(cloudDashDir.x, cloudDashDir.z);
+        cloudDashT = CLOUD_DASH_TIME;
+        cloudDashCd = CLOUD_DASH_CD;
+        cloud.dash();
+        rig.addShake(0.18f);
+        hud.toast("腾云冲刺");
+    }
+
+    /** 冲刺位移逐帧推进：按 0.6m 切片，避免一帧跨过峡谷边缘。 */
+    private void tickCloudDash(float dt) {
+        if (cloudDashT <= 0f) {
+            return;
+        }
+        if (!player.mounted || !player.alive || !canControl()) {
+            cloudDashT = 0f;
+            return;
+        }
+        cloudDashT -= dt;
+        float step = CLOUD_DASH_SPEED * dt;
+        int slices = Math.max(1, (int) Math.ceil(step / 0.6f));
+        float px = player.pos.x;
+        float pz = player.pos.z;
+        for (int i = 0; i < slices; i++) {
+            float nx = player.pos.x + cloudDashDir.x * step / slices;
+            float nz = player.pos.z + cloudDashDir.z * step / slices;
+            if (!standable(nx, nz)) {
+                break;
+            }
+            player.pos.x = nx;
+            player.pos.z = nz;
+        }
+        if (player.pos.x == px && player.pos.z == pz) {
+            cloudDashT = 0f;
+        }
     }
 
     private void toggleLock() {
@@ -1670,6 +1886,10 @@ public final class WorldApp extends SimpleApplication {
 
     @Override
     public void simpleUpdate(float tpf) {
+        if (loading) {
+            tickLoading(tpf);
+            return;
+        }
         float raw = Math.min(tpf, 0.05f);
         if (phase == Phase.TITLE || phase == Phase.NAME) {
             titleTime += raw;
@@ -1833,6 +2053,7 @@ public final class WorldApp extends SimpleApplication {
         }
         time += dt;
         save.playSeconds += dt;
+        cloudDashCd = Math.max(0f, cloudDashCd - dt);
 
         float moveF = (keyFwd ? 1f : 0f) - (keyBack ? 1f : 0f);
         float moveR = (keyRight ? 1f : 0f) - (keyLeft ? 1f : 0f);
@@ -1847,9 +2068,31 @@ public final class WorldApp extends SimpleApplication {
         float px = player.pos.x;
         float pz = player.pos.z;
         player.setGroundY(terrain.height(px, pz));
+        // 涉水：水面 0.15m 起减速，0.75m 起明显拖慢；塘最深 1.2m，所以永远走得到对岸
+        float wade = terrain.depth(px, pz);
+        player.waterDrag = wade > 0.75f ? 0.55f : (wade > 0.15f ? 0.72f : 1f);
+        if (wade > 0.15f && moving && player.pos.y < 0.35f && player.alive) {
+            rippleT -= dt;
+            if (rippleT <= 0f) {
+                rippleT = RIPPLE_INTERVAL;
+                fx.ripple(new Vector3f(px, terrain.waterLevelAt(px, pz) + 0.03f, pz),
+                        1.5f, 0.75f, new ColorRGBA(0.72f, 0.86f, 0.92f, 0.30f));
+            }
+        } else {
+            rippleT = 0f;
+        }
         Target combat = lockedTarget != null && lockedTarget.alive ? lockedTarget : dummy;
-        player.update(dt, moveF, moveR, sprint, keySkill, rig.yaw(),
+        if (combat == dummy) {
+            Target exec = executableTarget();
+            if (exec != null) {
+                combat = exec;
+            }
+        }
+        execTarget = combat != dummy && combat.canBeExecuted(player.pos) ? combat : null;
+        // 骑云时 F 归腾云冲刺，不能再被玩家当作"按住战技"的下压状态
+        player.update(dt, moveF, moveR, sprint, keySkill && !player.mounted, rig.yaw(),
                 combat != dummy, combat);
+        tickCloudDash(dt);
 
         if (!standable(player.pos.x, player.pos.z) && player.alive) {
             player.pos.x = px;
@@ -1890,6 +2133,7 @@ public final class WorldApp extends SimpleApplication {
             rig.addShake(player.mounted ? 0.22f : 0.55f);
         }
         if (player.evMountDown) {
+            cloudDashT = 0f;
             cloud.burst();
             cloud.show(false);
             hud.toast("筋斗云被击散了");
@@ -1933,6 +2177,7 @@ public final class WorldApp extends SimpleApplication {
         }
         shownBoss = chooseShownBoss();
         hud.setFlaskCounts(save.flaskCrimson, save.flaskCerulean);
+        hud.setCloudCooldown(cloudDashCd / CLOUD_DASH_CD);
         hud.update(dt, player, save, lockedTarget, shownBoss,
                 caveBossActive ? caveBoss : null, cam,
                 player.mounted, save.hour);
@@ -1964,7 +2209,7 @@ public final class WorldApp extends SimpleApplication {
         float speed = Math.min(7f, (s - SLIDE_SLOPE) * 6f + 1.6f);
         float nx = x - gx / len * speed * dt;
         float nz = z - gz / len * speed * dt;
-        if (terrain.height(nx, nz) > WorldData.WATER_Y + 0.18f
+        if (terrain.depth(nx, nz) <= WorldData.WADE_DEPTH
                 && Math.abs(nx) < WorldData.HALF - 18f
                 && Math.abs(nz) < WorldData.HALF - 18f) {
             player.pos.x = nx;
@@ -1976,7 +2221,8 @@ public final class WorldApp extends SimpleApplication {
         if (Math.abs(x) > WorldData.HALF - 18f || Math.abs(z) > WorldData.HALF - 18f) {
             return false;
         }
-        if (terrain.height(x, z) < WorldData.WATER_Y + 0.18f) {
+        // 水边不再有空气墙：只要没到 WADE_DEPTH 就踩着塘底走进去（水面在 0.55m 以上都算浅水）
+        if (terrain.depth(x, z) > WorldData.WADE_DEPTH) {
             return false;
         }
         return terrain.slope(x, z) < 1.15f;
@@ -2219,6 +2465,10 @@ public final class WorldApp extends SimpleApplication {
         fill.setColor(new ColorRGBA(1f, 0.86f, 0.7f, 1f).multLocal(0.15f + 0.14f * day));
         ambient.setColor(new ColorRGBA(0.150f + 0.025f * day, 0.165f + 0.020f * day,
                 0.225f - 0.020f * day, 1f));
+        if (worldShots) {
+            // 截图只用来验收模型：环境光抬到能看清每一个零件
+            ambient.setColor(new ColorRGBA(0.30f, 0.30f, 0.34f, 1f));
+        }
         lantern.setColor(new ColorRGBA(1f, 0.68f, 0.36f, 1f)
                 .multLocal(0.15f + 0.85f * night));
         lantern.setRadius(16f + 8f * night);
@@ -2241,9 +2491,51 @@ public final class WorldApp extends SimpleApplication {
         }
     }
 
+    /**
+     * 最近一个处于失衡硬直、且在处决距离内的敌人。
+     * 不要求先按 Q 锁定——魂游里失衡处决是可以直接贴上去按的，
+     * 锁定只是补一个更稳的取景。
+     */
+    private Target executableTarget() {
+        Target best = null;
+        float bestD = 6f;
+        for (WorldBoss b : bosses) {
+            if (!b.alive || !b.available || !b.canBeExecuted(player.pos)) {
+                continue;
+            }
+            float d = MathX.distXZ(player.pos, b.pos);
+            if (d < bestD) {
+                bestD = d;
+                best = b;
+            }
+        }
+        if (gateBoss != null && gateBoss.alive && gateBoss.canBeExecuted(player.pos)) {
+            float d = MathX.distXZ(player.pos, gateBoss.pos);
+            if (d < bestD) {
+                bestD = d;
+                best = gateBoss;
+            }
+        }
+        if (caveBoss != null && caveBoss.alive && caveBoss.canBeExecuted(player.pos)) {
+            float d = MathX.distXZ(player.pos, caveBoss.pos);
+            if (d < bestD) {
+                best = caveBoss;
+            }
+        }
+        return best;
+    }
+
     private void updatePrompt() {
+        if (poseShotMode) {
+            hud.setPrompt("");
+            return;
+        }
         if (!player.alive) {
             hud.setPrompt("");
+            return;
+        }
+        if (execTarget != null) {
+            hud.setPrompt("左键  处决");
             return;
         }
         if (gateActive) {
@@ -2305,6 +2597,7 @@ public final class WorldApp extends SimpleApplication {
     private void handleDeath() {
         phase = Phase.DEAD;
         lockedTarget = null;
+        execTarget = null;
         clearMoveInput();
         player.setMounted(false);
         cloud.show(false);
@@ -2626,9 +2919,22 @@ public final class WorldApp extends SimpleApplication {
                 keySprint = true;
                 sprintDownAt = time - 1f;
             }
-            case 140 -> {
+            case 112 -> {
+                // 骑云跑动时腿必须锁死：记下迈步相位，冲刺后再核对
+                testRidePhase = player.walkPhaseValue();
+                testDashX = player.pos.x;
+                testDashZ = player.pos.z;
                 keyFwd = false;
                 keySprint = false;
+                tapKey(KeyInput.KEY_F);
+            }
+            case 140 -> {
+                float dashDist = (float) Math.hypot(player.pos.x - testDashX,
+                        player.pos.z - testDashZ);
+                check("mount legs still", player.walkPhaseValue() == testRidePhase,
+                        "phase " + testRidePhase + " -> " + player.walkPhaseValue());
+                check("cloud dash", dashDist > 8f && cloudDashCd > 0f,
+                        "moved=" + fmt(dashDist) + "m cd=" + fmt(cloudDashCd) + "s");
                 toggleMount();
                 check("mount dismiss", !player.mounted, "mounted=" + player.mounted);
                 WorldMob m = nearestMob(terrain);
@@ -2724,6 +3030,325 @@ public final class WorldApp extends SimpleApplication {
             case 340 -> {
                 teleport(testLostX, testLostZ);
                 player.invuln = 99999f;
+            }
+            case 341 -> {
+                // 断崖：崖线两侧 60m 内必须有 >=40m 落差与 >=1.6 的坡面
+                float scarpMax = 0f;
+                for (float sx = -520f; sx <= -60f; sx += 20f) {
+                    float line = WorldTerrain.scarpZ(sx);
+                    float drop = terrain.height(sx, line - 30f) - terrain.height(sx, line + 30f);
+                    for (float z = line - 24f; z <= line + 24f; z += 1.5f) {
+                        scarpMax = Math.max(scarpMax, terrain.slope(sx, z));
+                    }
+                    if (sx == -160f || sx == -140f) {
+                        testNotes.add("scarp @" + fmt(sx) + " drop=" + fmt(drop) + "m");
+                    }
+                }
+                check("stormhill scarp", scarpMax >= 1.6f,
+                        "max slope on scarp=" + fmt(scarpMax));
+                // 爬崖公路必须是缓坡：整条路按 2m 采样都不能出现 slideDownhill 的坡度，
+                // 而且真的爬到台地顶（隘口曾残留一道 1.2 坡度的岩坎，玩家被推回崖脚）
+                float roadMax = 0f;
+                float roadTop = 0f;
+                int roadBlocked = 0;
+                float[] road0 = WorldData.ROADS[0];
+                for (int i = 0; i + 3 < road0.length; i += 2) {
+                    float ax = road0[i];
+                    float az = road0[i + 1];
+                    float bx = road0[i + 2];
+                    float bz = road0[i + 3];
+                    int n = Math.max(1, (int) (Math.hypot(bx - ax, bz - az) / 2f));
+                    for (int k = 0; k <= n; k++) {
+                        float t = k / (float) n;
+                        float x = ax + (bx - ax) * t;
+                        float z = az + (bz - az) * t;
+                        float sl = terrain.slope(x, z);
+                        roadMax = Math.max(roadMax, sl);
+                        if (sl >= SLIDE_SLOPE) {
+                            roadBlocked++;
+                        }
+                        roadTop = Math.max(roadTop, terrain.height(x, z));
+                    }
+                }
+                check("stormhill pass walkable", roadBlocked == 0 && roadMax < 0.95f,
+                        "blocked samples=" + roadBlocked + " max slope=" + fmt(roadMax));
+                check("stormhill pass reaches plateau", roadTop >= 60f,
+                        "highest road point=" + fmt(roadTop) + "m");
+                // 大地标：8 以后的新遗迹（石阵/陵墓/巨像）必须落在能站人的平地上；
+                // 断桥（11）是跨峡谷的，只看桥心没有意义
+                int steepSites = 0;
+                for (WorldData.Poi poi : WorldData.POIS) {
+                    if (poi.kind() >= 8 && poi.kind() != 11
+                            && terrain.slope(poi.x(), poi.z()) >= SLIDE_SLOPE) {
+                        steepSites++;
+                    }
+                }
+                check("landmarks standable", steepSites == 0, "steep sites=" + steepSites);
+                check("northern peaks", terrain.height(430f, -585f) >= 180f,
+                        "peak h=" + fmt(terrain.height(430f, -585f)) + "m");
+                // 内陆不能被海面淹没：海水是一整块平板，低地掉到 0.55 以下就成"湖"
+                int lowSamples = 0;
+                int samples = 0;
+                for (float x = -360f; x <= 560f; x += 40f) {
+                    for (float z = -360f; z <= 480f; z += 40f) {
+                        float lx = (x - WorldData.LAKE_X) / WorldData.LAKE_RX;
+                        float lz = (z - WorldData.LAKE_Z) / WorldData.LAKE_RZ;
+                        if (lx * lx + lz * lz < 1.4f) {
+                            continue;
+                        }
+                        samples++;
+                        if (terrain.height(x, z) < WorldData.WATER_Y + 0.8f) {
+                            lowSamples++;
+                        }
+                    }
+                }
+                check("inland not flooded", lowSamples * 100 <= samples * 3,
+                        "low samples=" + lowSamples + "/" + samples);
+                // 峡谷：谷底到两岸中最高谷肩的落差要够，否则只是草地上的一道浅沟
+                for (int i = 0; i < WorldData.GORGES.length; i++) {
+                    WorldData.Gorge g = WorldData.GORGES[i];
+                    float mx = (g.x1() + g.x2()) * 0.5f;
+                    float mz = (g.z1() + g.z2()) * 0.5f;
+                    float len = MathX.distXZ(new Vector3f(g.x1(), 0f, g.z1()),
+                            new Vector3f(g.x2(), 0f, g.z2()));
+                    float nx = -(g.z2() - g.z1()) / len;
+                    float nz = (g.x2() - g.x1()) / len;
+                    float floor = terrain.height(mx, mz);
+                    float rim = floor;
+                    for (float off = g.halfWidth(); off <= g.halfWidth() * 2.4f; off += 2f) {
+                        rim = Math.max(rim, terrain.height(mx + nx * off, mz + nz * off));
+                        rim = Math.max(rim, terrain.height(mx - nx * off, mz - nz * off));
+                    }
+                    check("gorge " + (i + 1) + " depth", rim - floor >= 14f,
+                            "floor=" + fmt(floor) + " rim=" + fmt(rim)
+                                    + " cut=" + fmt(rim - floor) + "m");
+                }
+                // 水塘：盆底够浅、岸唇高过水面、涉水进塘不被挡
+                for (int i = 0; i < WorldData.PONDS.length; i++) {
+                    WorldData.Pond p = WorldData.PONDS[i];
+                    float lvl = WorldTerrain.pondLevel(i);
+                    float basin = lvl - terrain.height(p.x(), p.z());
+                    float rim = terrain.height(p.x() + p.rx() * 1.08f, p.z());
+                    check("pond " + p.name() + " depth", basin > 0.6f
+                                    && basin <= WorldData.WADE_DEPTH,
+                            "basin=" + fmt(basin) + "m rim=" + fmt(rim - lvl) + "m");
+                }
+                WorldData.Pond p0 = WorldData.PONDS[1];
+                float lvl0 = WorldTerrain.pondLevel(1);
+                float shore = p0.z();
+                for (float dz = 0f; dz < p0.rz() * 1.4f; dz += 0.2f) {
+                    if (terrain.height(p0.x(), p0.z() + dz) > lvl0 + 0.02f) {
+                        shore = p0.z() + dz;
+                        break;
+                    }
+                }
+                check("pond center wadeable",
+                        standable(p0.x(), p0.z())
+                                && terrain.depth(p0.x(), p0.z()) <= WorldData.WADE_DEPTH,
+                        "depth=" + fmt(terrain.depth(p0.x(), p0.z()))
+                                + " standable=" + standable(p0.x(), p0.z()));
+                testPondShore = shore - 0.3f;
+            }
+            case 342 -> {
+                // Boss 骨骼 + 招式动作：四个重点 Boss 必须是真关节树，并且按招式名能摆出
+                // 明显不同的大风车/下劈/踏地姿势（旧版整个模型只是一个刚体组）
+                String[][] rigs = {
+                        {"tree-sentinel", "overhead cleave"},
+                        {"margit", "holy hammer"},
+                        {"agheel", "agheel fire"},
+                        {"avatar", "erdtree bloom"},
+                };
+                for (String[] row : rigs) {
+                    WorldBoss b = findBoss(row[0]);
+                    if (b == null) {
+                        check("rig " + row[0], false, "missing boss");
+                        continue;
+                    }
+                    boolean wasAlive = b.alive;
+                    // 大树守卫在早前的主线自测里已被打死，姿势模块只在存活分支跑
+                    byAlive(b, true);
+                    int joints = b.model.jointCount();
+                    b.releasePose();
+                    b.holdPose(row[1], WorldBoss.State.WINDUP, 0f, false);
+                    float rest = b.model.poseSignature();
+                    b.holdPose(row[1], WorldBoss.State.WINDUP, b.move.windup * 0.95f, false);
+                    float wind = b.model.poseSignature();
+                    b.holdPose(row[1], WorldBoss.State.STRIKE, 0.12f, true);
+                    float hit = b.model.poseSignature();
+                    b.releasePose();
+                    check("rig " + row[0], joints >= 18
+                                    && Math.abs(wind - rest) > 0.35f
+                                    && Math.abs(hit - wind) > 0.35f,
+                            "joints=" + joints + " windup+" + fmt(wind - rest)
+                                    + " strike+" + fmt(hit - wind) + " alive=" + b.alive
+                                    + " move=" + (b.move == null ? "-" : b.move.name)
+                                    + " state=" + b.state
+                                    + " k=" + fmt(b.model.dbgWindK) + "/"
+                                    + fmt(b.model.dbgStrikeK) + " mv=" + b.model.dbgMove
+                                    + " sig=" + fmt(rest) + "/" + fmt(wind) + "/" + fmt(hit));
+                    testNotes.add("rig " + row[0] + " joints=" + joints);
+                    byAlive(b, wasAlive);
+                }
+            }
+            case 344 -> {
+                // 烈焰风暴：起手要铺火柱，且施法期间被击中只掉血、不打断、不击退
+                player.state = Player.State.FREE;
+                player.stateTime = 0f;
+                player.airborne = false;
+                player.velocity.set(0f, 0f, 0f);
+                player.hp = player.hpMax;
+                player.mana = player.mpMax;
+                player.stamina = player.stMax;
+                player.invuln = 0f;
+                testSkillHp = player.hp;
+                testSkillFx = fx.activeFx();
+                player.requestSkill();
+            }
+            case 345 -> {
+                check("skill starts", player.hyperArmor(), "state=" + player.state);
+                check("skill fx layers", fx.activeFx() >= testSkillFx + 2,
+                        "fx=" + fx.activeFx() + " before=" + testSkillFx);
+                player.invuln = 0f;
+                boolean landed = player.takeHit(10f,
+                        new Vector3f(player.pos.x + 1f, player.pos.y, player.pos.z));
+                check("skill hyper armor", landed && player.state == Player.State.SKILL
+                                && player.hp <= testSkillHp - 10f + 0.01f
+                                && player.velocity.length() < 1.2f,
+                        "landed=" + landed + " state=" + player.state + " hp="
+                                + fmt(player.hp) + "/" + fmt(testSkillHp)
+                                + " vel=" + fmt(player.velocity.length()));
+                player.finishSkill();
+            }
+            case 346 -> {
+                // 普通状态下同一击必须打断（HURT），证明霸体只挂在施法上
+                player.invuln = 0f;
+                player.takeHit(1f, new Vector3f(player.pos.x + 1f, player.pos.y, player.pos.z));
+                check("hit interrupts", player.state == Player.State.HURT,
+                        "state=" + player.state);
+                player.hp = player.hpMax;
+                player.state = Player.State.FREE;
+                player.stateTime = 0f;
+                player.velocity.set(0f, 0f, 0f);
+            }
+            case 347 -> {
+                // 动作连贯性：蓄力末帧 → 挥击首帧、挥击末帧 → 收招首帧必须是连续的，
+                // 中途不能有一帧弹回静止（旧版 STRIKE 把 windK 归零，抬手动作整个消失）。
+                WorldBoss b = findBoss("margit");
+                byAlive(b, true);
+                b.releasePose();
+                WorldBoss.Move smash = b.moveNamed("overhead smash");
+                b.holdPose("overhead smash", WorldBoss.State.WINDUP, smash.windup * 0.95f, false);
+                float windEnd = b.model.poseSignature();
+                b.holdPose("overhead smash", WorldBoss.State.STRIKE, 0.001f, false);
+                float strikeStart = b.model.poseSignature();
+                b.holdPose("overhead smash", WorldBoss.State.STRIKE, smash.active * 0.6f, false);
+                float strikeEnd = b.model.poseSignature();
+                b.holdPose("overhead smash", WorldBoss.State.RECOVER, 0.001f, false);
+                float recoverStart = b.model.poseSignature();
+                b.releasePose();
+                check("boss pose continuity",
+                        Math.abs(strikeStart - windEnd) < 0.12f
+                                && Math.abs(strikeEnd - windEnd) > 0.35f
+                                && Math.abs(recoverStart - strikeEnd) < 0.12f,
+                        "wind=" + fmt(windEnd) + " strike0=" + fmt(strikeStart)
+                                + " strikeEnd=" + fmt(strikeEnd)
+                                + " rec0=" + fmt(recoverStart));
+
+                // 冲锋连续性：整段冲锋的位移必须摊到多帧上，任何一帧都不许瞬移贴脸
+                WorldBoss dash = findBoss("tree-sentinel");
+                byAlive(dash, true);
+                dash.releasePose();
+                dash.engaged = true;
+                dash.cooldown = 0f;
+                player.invuln = 99999f;
+                float bestA = 0f;
+                float bestLen = 0f;
+                for (int i = 0; i < 16; i++) {
+                    float a = i * FastMath.TWO_PI / 16f;
+                    float len = 0f;
+                    for (float d = 2f; d <= 14f; d += 1f) {
+                        if (!dash.canStand(dash.pos.x + FastMath.sin(a) * d,
+                                dash.pos.z + FastMath.cos(a) * d)) {
+                            break;
+                        }
+                        len = d;
+                    }
+                    if (len > bestLen) {
+                        bestLen = len;
+                        bestA = a;
+                    }
+                }
+                teleport(dash.pos.x + FastMath.sin(bestA) * 13f,
+                        dash.pos.z + FastMath.cos(bestA) * 13f);
+                player.yaw = MathX.yawTo(player.pos, dash.pos);
+                dash.yaw = MathX.yawTo(dash.pos, player.pos);
+                dash.state = WorldBoss.State.WINDUP;
+                dash.move = dash.moveNamed("lance charge");
+                dash.stateTime = dash.move.windup;
+                testDashX = dash.pos.x;
+                testDashZ = dash.pos.z;
+                for (int i = 0; i < 90; i++) {
+                    dash.update(1f / 60f, player);
+                }
+                float travel = (float) Math.hypot(dash.pos.x - testDashX,
+                        dash.pos.z - testDashZ);
+                check("boss dash continuous", dash.testMaxStep < 1.2f && travel > 4f,
+                        "maxStep=" + fmt(dash.testMaxStep) + " travel=" + fmt(travel)
+                                + " free=" + fmt(bestLen) + " state=" + dash.state);
+
+                // 失衡窗口 + 处决提示：把守卫按住，下一帧 HUD 必须提示"处决"
+                dash.releasePose();
+                dash.state = WorldBoss.State.STAGGER;
+                dash.stateTime = 0f;
+                dash.executionLocked = false;
+                dash.available = true;
+                dash.pos.y = terrain.height(dash.pos.x, dash.pos.z);
+                teleport(dash.pos.x + 2.2f, dash.pos.z);
+            }
+            case 348 -> {
+                WorldBoss b = findBoss("tree-sentinel");
+                boolean wasAlive = b.alive;
+                b.hp = b.maxHp();
+                check("execution prompt", execTarget == b
+                                && hud.promptProbe().contains("处决"),
+                        "target=" + (execTarget == null ? "none" : execTarget.hashCode())
+                                + " prompt=" + hud.promptProbe());
+                boolean can = b.canBeExecuted(player.pos);
+                b.lockForExecution(player.pos);
+                float before = b.hp;
+                b.takeExecution(240f, new Vector3f(b.pos.x, b.pos.y + 1.2f, b.pos.z));
+                float dealt = before - b.hp;
+                check("execution knockdown", can && b.state == WorldBoss.State.KNOCKDOWN
+                                && dealt >= 240f - 0.01f,
+                        "can=" + can + " state=" + b.state + " dealt=" + fmt(dealt));
+                b.hp = b.maxHp();
+                b.state = WorldBoss.State.CHASE;
+                b.stateTime = 0f;
+                b.executionLocked = false;
+                b.releasePose();
+                byAlive(b, wasAlive);
+                player.invuln = 99999f;
+            }
+            case 456 -> {
+                // 从岸线往塘心走：旧版在岸边就被"深水"判定推回，这里必须真的踩进水里
+                WorldData.Pond p0 = WorldData.PONDS[1];
+                teleport(p0.x(), testPondShore);
+                player.yaw = MathX.yawTo(player.pos, new Vector3f(p0.x(), 0f, p0.z()));
+                rig.snap(player, dummy, false);
+                testWadeDepth = terrain.depth(player.pos.x, player.pos.z);
+                System.out.println("[WADE] start pos=" + player.pos + " shore=" + testPondShore
+                        + " depth=" + testWadeDepth + " phase=" + phase);
+                keyFwd = true;
+            }
+            case 469 -> {
+                keyFwd = false;
+                float d = terrain.depth(player.pos.x, player.pos.z);
+                System.out.println("[WADE] end pos=" + player.pos + " depth=" + d
+                        + " ground=" + terrain.height(player.pos.x, player.pos.z));
+                check("wade into pond", d > Math.max(0.12f, testWadeDepth + 0.08f),
+                        "depth " + fmt(testWadeDepth) + " -> " + fmt(d)
+                                + " pos=" + fmt(player.pos.x) + "," + fmt(player.pos.z));
+                keyFwd = false;
             }
             case 350 -> check("lost runes recovered", save.runes >= testLostRunes,
                     "runes=" + save.runes + " expected>=" + testLostRunes);
@@ -3017,8 +3642,16 @@ public final class WorldApp extends SimpleApplication {
         }
     }
 
-    private void check(String name, boolean ok, String detail) {
-        System.out.println("[WORLDTEST] " + (ok ? "PASS " : "FAIL ") + name
+    /** 自测临时改生死：调用方必须还原，否则后段剧情判定会跟着变。 */
+    private void byAlive(WorldBoss b, boolean alive) {
+        b.alive = alive;
+        if (alive) {
+            b.deathTime = 0f;
+        }
+        b.model.resetPose();
+    }
+
+    private void check(String name, boolean ok, String detail) {        System.out.println("[WORLDTEST] " + (ok ? "PASS " : "FAIL ") + name
                 + " (" + detail + ")");
         if (!ok) {
             testProblems.add(name);
@@ -3288,7 +3921,216 @@ public final class WorldApp extends SimpleApplication {
             chooseMenu(0);
         } else if (frames == 632) {
             pendingShot = "world-level";
-        } else if (frames >= 634) {
+        } else if (frames == 636) {
+            // 地貌验收：断崖、水塘、峡谷、雾林
+            closeToPlay();
+            shotTrack = null;
+            hud.clearLocation();
+            hud.clearToast();
+            setHour(9f);
+            // 离崖面 90m：贴着崖根只能拍到一面石墙，退开才看得到 60m 的完整崖壁与崖顶
+            shotCam.set(-140f, terrain.height(-140f, -318f) + 10f, -318f);
+            shotAim.set(-140f, 34f, -412f);
+        } else if (frames == 642) {
+            pendingShot = "world-cliff";
+        } else if (frames == 648) {
+            // 东北岸斜俯视整口塘：水面、岸唇、塘边石头与后方断崖要一起入画
+            float lvl = terrain.pondLevel(0);
+            shotCam.set(-178f, lvl + 46f, 244f);
+            shotAim.set(-262f, lvl + 1f, 148f);
+        } else if (frames == 654) {
+            pendingShot = "world-pond";
+        } else if (frames == 660) {
+            // 从西北侧 50m 高处俯看整条峡谷：近岸只留一条边，谷底和两侧谷壁都露出来
+            shotCam.set(14f, terrain.height(14f, -4f) + 48f, -4f);
+            shotAim.set(100f, terrain.height(100f, -75f) + 4f, -75f);
+        } else if (frames == 666) {
+            pendingShot = "world-gorge";
+        } else if (frames == 672) {
+            shotCam.set(250f, terrain.height(250f, 330f) + 12f, 330f);
+            shotAim.set(340f, terrain.height(340f, 400f) + 6f, 400f);
+        } else if (frames == 678) {
+            pendingShot = "world-mistwood";
+        } else if (frames == 680) {
+            // 风蚀石阵：从东南侧看向台地上的巨石环与祭坛
+            shotCam.set(-84f, terrain.height(-84f, -470f) + 12f, -470f);
+            shotAim.set(-110f, terrain.height(-110f, -500f) + 3.5f, -500f);
+        } else if (frames == 686) {
+            pendingShot = "world-stone-circle";
+        } else if (frames == 688) {
+            // 英雄陵墓：柱廊主殿正面
+            shotCam.set(615f, terrain.height(615f, -219f) + 24f, -219f);
+            shotAim.set(585f, terrain.height(585f, -265f) + 12f, -265f);
+        } else if (frames == 694) {
+            pendingShot = "world-mausoleum";
+        } else if (frames == 696) {
+            // 坠落巨像：斜侧 3/4，台基、断臂、巨剑都要入画
+            shotCam.set(-30f, terrain.height(-30f, -300f) + 12f, -300f);
+            shotAim.set(-60f, terrain.height(-60f, -335f) + 6f, -335f);
+        } else if (frames == 702) {
+            pendingShot = "world-colossus";
+        } else if (frames == 704) {
+            // 断桥：沿峡谷轴线侧看，桥面断层与桥墩一起验
+            shotCam.set(160f, 44f, -8f);
+            shotAim.set(100f, 22f, -75f);
+        } else if (frames == 710) {
+            pendingShot = "world-broken-bridge";
+        } else if (frames == 712) {
+            // 北境群峰：从低地北望，崖台、城墙与三座主峰的剪影
+            shotCam.set(60f, 150f, -330f);
+            shotAim.set(160f, 150f, -650f);
+        } else if (frames == 718) {
+            pendingShot = "world-mountains";
+        } else if (frames == 724) {
+            // 招式动作验收：飞龙吐火（张口 + 口中火柱/余烬）
+            WorldBoss gb = findBoss("agheel");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                // 侧前上方 3/4：翼面、颈长和火舌都能同时读到。
+                // 先定朝向再摆姿势——吐息火团是按 pose 时的 yaw 铺出去的
+                poseShotCam(gb, 7f, 14f, 9.5f, gb.displayHeight() * 0.62f);
+                gb.holdPose("agheel fire", WorldBoss.State.STRIKE, 0.55f, true);
+                shotAim.addLocal(new Vector3f(
+                        FastMath.sin(gb.yaw) * 4f, 0f, FastMath.cos(gb.yaw) * 4f));
+            }
+        } else if (frames == 730) {
+            pendingShot = "world-agheel-fire";
+        } else if (frames == 732) {
+            // 玛尔基特：圣锤蓄力（举杖 + 金柱预警圈）
+            WorldBoss gb = findBoss("margit");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                poseShotCam(gb, 9.5f, 5.2f, 3.4f, 3.9f);
+                gb.holdPose("holy hammer", WorldBoss.State.WINDUP, 1.0f, true);
+            }
+        } else if (frames == 738) {
+            pendingShot = "world-margit-hammer";
+        } else if (frames == 740) {
+            // 大树守卫：过顶下劈（人马 + 戟同帧）
+            WorldBoss gb = findBoss("tree-sentinel");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                poseShotCam(gb, 6.2f, 4.4f, 2.9f, 2.7f);
+                gb.holdPose("overhead cleave", WorldBoss.State.STRIKE, 0.20f, true);
+            }
+        } else if (frames == 746) {
+            pendingShot = "world-sentinel-cleave";
+        } else if (frames == 748) {
+            // 黄金树化身：黄金树绽放（树冠张开 + 八道金柱）
+            WorldBoss gb = findBoss("avatar");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                poseShotCam(gb, 20f, 14f, 9f, gb.displayHeight() * 0.66f);
+                gb.holdPose("erdtree bloom", WorldBoss.State.WINDUP, 1.0f, true);
+            }
+        } else if (frames == 754) {
+            pendingShot = "world-avatar-bloom";
+        } else if (frames == 756) {
+            // 主角 F 烈焰风暴：火柱 + 余烬，同时松掉 Boss 的冻结姿势
+            for (String id : new String[]{"agheel", "margit", "tree-sentinel", "avatar"}) {
+                WorldBoss gb = findBoss(id);
+                if (gb != null) {
+                    gb.releasePose();
+                }
+            }
+            shotTrack = null;
+            poseShotMode = false;
+            hud.clearLocation();
+            hud.clearToast();
+            player.alive = true;
+            player.hp = player.hpMax;
+            player.mana = player.mpMax;
+            player.stamina = player.stMax;
+            player.invuln = 99999f;
+            player.mounted = false;
+            teleport(-95f, 100f);
+            player.state = Player.State.FREE;
+            player.stateTime = 0f;
+            player.velocity.set(0f, 0f, 0f);
+            // 把近处杂兵藏起来：技能特写里不能有狼从火柱后面走过
+            for (WorldMob m : mobs) {
+                if (MathX.distXZ(m.pos, player.pos) < 64f) {
+                    m.hideForShot();
+                }
+            }
+            fx.clear();
+            player.requestSkill();
+            float gy = terrain.height(player.pos.x, player.pos.z);
+            shotCam.set(player.pos.x + 6.8f, gy + 4.0f, player.pos.z - 8.4f);
+            shotAim.set(player.pos.x, gy + 2.8f, player.pos.z);
+        } else if (frames == 760) {
+            pendingShot = "world-skill";
+        } else if (frames == 764) {
+            // 挥击帧：玛尔基特杖扫的中段，抬手 → 挥出的落差要一眼能读出来
+            WorldBoss gb = findBoss("margit");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                // 机位比圣锤那张更正面：横扫是横向甩杖，侧光背光会把手臂压成黑影
+                poseShotCam(gb, 9.5f, 3.2f, 3.4f, 3.4f);
+                gb.holdPose("staff sweep", WorldBoss.State.STRIKE, 0.16f, true);
+            }
+        } else if (frames == 770) {
+            pendingShot = "world-margit-sweep";
+        } else if (frames == 772) {
+            // 黄金树绽放的“释放”帧：树冠向下炸开，与蓄力帧对照
+            WorldBoss gb = findBoss("avatar");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                poseShotCam(gb, 18f, 13f, 8f, gb.displayHeight() * 0.58f);
+                gb.holdPose("erdtree bloom", WorldBoss.State.STRIKE, 0.16f, true);
+            }
+        } else if (frames == 778) {
+            pendingShot = "world-avatar-release";
+        } else if (frames == 780) {
+            // 失衡：跪伏姿态 + 处决窗口，验证被处决前的可读状态
+            WorldBoss gb = findBoss("tree-sentinel");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                // 骑手趴在马颈上：视点要抬到骑士高度并偏正面，否则只能看到马屁股
+                poseShotCam(gb, 7.4f, 3.0f, 3.8f, 3.1f);
+                gb.holdPose("overhead cleave", WorldBoss.State.STAGGER, 0.9f, false);
+            }
+        } else if (frames == 786) {
+            pendingShot = "world-sentinel-stagger";
+        } else if (frames == 788) {
+            // 飞龙咬击的中段：脖子伸出去、下颚全开
+            WorldBoss gb = findBoss("agheel");
+            if (gb != null) {
+                setHour(10f);
+                hud.clearLocation();
+                hud.clearToast();
+                fx.clear();
+                // 咬击的脖子前探 8.5m：用近乎正侧的长焦机位，再把视点顺朝向推出去，
+                // 头和脖颈的弧线才不会被画面左边缘切掉
+                poseShotCam(gb, 6.5f, 15f, 9f, gb.displayHeight() * 0.5f);
+                gb.holdPose("bite", WorldBoss.State.STRIKE, 0.14f, true);
+                shotAim.addLocal(new Vector3f(
+                        FastMath.sin(gb.yaw) * 4f, 0f, FastMath.cos(gb.yaw) * 4f));
+            }
+        } else if (frames == 794) {
+            pendingShot = "world-agheel-bite";
+        } else if (frames >= 812) {
             System.out.println("[WORLDSHOTS] DONE frames=" + frames);
             stop();
         }
@@ -3344,14 +4186,40 @@ public final class WorldApp extends SimpleApplication {
         if (gb == null) {
             return;
         }
-        float yaw = gb.yaw;
         if (gb.spec.archetype == WorldBoss.Archetype.GODRICK) {
             // the keep is sealed until Margit falls; open it and face him south, toward the hall
             save.margitCleared = true;
             unlockKeepBoss();
             gb.yaw = 0f;
-            yaw = 0f;
+        } else {
+            // 朝主光方位偏 35°，正面取景才是受光面；否则整只 Boss 拍成剪影
+            gb.yaw = 0.84f + 0.62f;
         }
+        frameBossCam(gb);
+        if ("avatar".equals(id)) {
+            // 黄金树化身连鹿角接近 9.5 米，通用机位只能框到胸口以上
+            float yaw = gb.yaw;
+            float fx = FastMath.sin(yaw);
+            float fz = FastMath.cos(yaw);
+            shotCam.set(gb.pos.x + fx * 18f, gb.pos.y + 4.2f, gb.pos.z + fz * 18f);
+            shotAim.set(gb.pos.x, gb.pos.y + 4.6f, gb.pos.z);
+            shotOff.set(shotCam).subtractLocal(gb.pos);
+            shotTrack = gb;
+        }
+        aimShotFill();
+    }
+
+    /** 截图补光沿「机位→被摄物」打，背光机位下也看得清零件（仅 worldShots 存在）。 */
+    private void aimShotFill() {
+        if (shotFill == null) {
+            return;
+        }
+        shotFill.setDirection(new Vector3f(shotAim).subtractLocal(shotCam).normalizeLocal());
+    }
+
+    /** 围着 Boss 找机位（标题卡与招式截图共用）。 */
+    private void frameBossCam(WorldBoss gb) {
+        float yaw = gb.yaw;
         float dh = gb.displayHeight();
         float air = Math.max(0f, gb.pos.y - terrain.height(gb.pos.x, gb.pos.z));
         Vector3f aim = new Vector3f(gb.pos.x, gb.pos.y + dh * 0.5f, gb.pos.z);
@@ -3383,7 +4251,11 @@ public final class WorldApp extends SimpleApplication {
                     }
                     float facing = Math.max(FastMath.cos(a - yaw - 0.6f),
                             FastMath.cos(a - yaw + 0.6f));
-                    float score = facing * 3f - Math.abs(d - (near + 2f)) * 0.14f - h * 0.4f;
+                    // 主光从 +x/+z 来；机位不压在受光面这一侧，整只 Boss 会拍成剪影
+                    float lit = Math.max(0f, FastMath.sin(a) * 0.44f + FastMath.cos(a) * 0.40f)
+                            / 0.594f;
+                    float score = facing * 3f + lit * 2.2f
+                            - Math.abs(d - (near + 2f)) * 0.14f - h * 0.4f;
                     if (score > bestScore) {
                         bestScore = score;
                         best = p;
@@ -3406,10 +4278,30 @@ public final class WorldApp extends SimpleApplication {
         teleport(gb.pos.x + fx * 24f, gb.pos.z + fz * 24f);
         hud.showLocation(gb.displayName(), gb.title());
         hud.clearToast();
-        System.out.println("[WORLDSHOTS] cam " + id + " boss=" + gb.pos
+        System.out.println("[WORLDSHOTS] cam " + gb.id() + " boss=" + gb.pos
                 + " cam=" + best + " yaw=" + yaw + " dh=" + dh
                 + " dist=" + best.distance(gb.pos)
                 + " rej terrain/prop/room=" + rejected[0] + "/" + rejected[1] + "/" + rejected[2]);
+    }
+
+    /** 招式特写机位：固定 3/4 前侧视角，Boss 已被 poseLock 冻住，不需要每帧跟踪。 */
+    private void poseShotCam(WorldBoss gb, float fwdDist, float sideDist, float camH,
+                             float aimH) {
+        // 主光方位角（+x/+z 来光）：先把 Boss 转向光源偏 35°，再正面取景，
+        // 否则 yaw 恰好在背光面时整只怪会拍成黑色剪影
+        gb.yaw = 0.84f + 0.62f;
+        Vector3f fwd = new Vector3f(FastMath.sin(gb.yaw), 0f, FastMath.cos(gb.yaw));
+        Vector3f right = new Vector3f(FastMath.cos(gb.yaw), 0f, -FastMath.sin(gb.yaw));
+        shotTrack = null;
+        poseShotMode = true;
+        shotCam.set(gb.pos).addLocal(fwd.mult(fwdDist)).addLocal(right.mult(sideDist));
+        shotCam.y = Math.max(shotCam.y, terrain.height(shotCam.x, shotCam.z) + 1.4f) + camH;
+        shotAim.set(gb.pos.x, gb.pos.y + aimH, gb.pos.z);
+        aimShotFill();
+        // 玩家站到镜头外侧，别挡画面，也让 Boss 朝向保持在冻结时的方向
+        teleport(shotCam.x + fwd.x * 4f, shotCam.z + fwd.z * 4f);
+        hud.showLocation(gb.displayName(), gb.title());
+        hud.clearToast();
     }
 
     private boolean shotClear(Vector3f aim, Vector3f camPos) {

@@ -106,6 +106,10 @@ final class WorldHud {
     private Item stFill;
     private Item mountBack;
     private Item mountFill;
+    private Item cloudBtn;
+    private Item cloudCd;
+    private Label cloudBtnLabel;
+    private float cloudCdFrac;
     private Label hpValue;
     private Label fpValue;
     private Label stValue;
@@ -360,6 +364,17 @@ final class WorldHud {
                 new ColorRGBA(0.66f, 0.82f, 1f, 0.95f), 4.2f));
         mountLabel = label(playRoot, "筋斗云", 10, new Color(174, 196, 226, 210),
                 false, 46f, 144f, 4.3f, false);
+
+        // 骑云专属动作键：只在骑乘时出现，底条是冷却进度
+        cloudBtn = item(quad(playRoot, white, 286f, 116f, 140f, 38f,
+                new ColorRGBA(0.014f, 0.022f, 0.034f, 0.76f), 4.6f));
+        cloudCd = item(quad(playRoot, white, 289f, 118f, 134f, 5f,
+                new ColorRGBA(0.68f, 0.86f, 1f, 0.95f), 4.65f));
+        cloudBtnLabel = label(playRoot, "F   腾云冲刺", 12,
+                new Color(198, 218, 242, 235), false, 356f, 129f, 4.7f, true);
+        cloudBtn.visible(false);
+        cloudCd.visible(false);
+        cloudBtnLabel.visible(false);
 
         runeValue = label(playRoot, "卢恩 0", 15, new Color(218, 199, 156, 230),
                 false, 0f, 102f, 4.3f, false);
@@ -703,6 +718,11 @@ final class WorldHud {
         return toastT > 0f ? toastText : "";
     }
 
+    /** 测试钩子：底部按键提示当前文本。 */
+    String promptProbe() {
+        return prompt;
+    }
+
     void setPrompt(String text) {
         prompt = text == null ? "" : text;
     }
@@ -800,10 +820,18 @@ final class WorldHud {
         mountBack.visible(mounted);
         mountFill.visible(mounted);
         mountLabel.visible(mounted);
+        cloudBtn.visible(mounted);
+        cloudCd.visible(mounted);
+        cloudBtnLabel.visible(mounted);
         if (mounted) {
             float mf = MathX.clamp(player.mountHp / Math.max(1f, player.mountMaxHp), 0f, 1f);
             mountFill.geo.setLocalScale(Math.max(0.01f, 218f * mf), 4f, 1f);
             mountLabel.setText("筋斗云  " + (int) Math.ceil(player.mountHp));
+            float ready = 1f - MathX.clamp(cloudCdFrac, 0f, 1f);
+            cloudCd.geo.setLocalScale(Math.max(0.01f, 134f * ready), 5f, 1f);
+            cloudCd.geo.getMaterial().setColor("Color", ready > 0.995f
+                    ? new ColorRGBA(0.68f, 0.86f, 1f, 0.95f)
+                    : new ColorRGBA(0.40f, 0.50f, 0.60f, 0.75f));
         }
 
         runeValue.setText("卢恩 " + String.format("%,d", save.runes));
@@ -827,6 +855,11 @@ final class WorldHud {
 
     private int saveFlasksCrimson;
     private int saveFlasksCerulean;
+
+    /** 腾云冲刺冷却进度：1=刚放完，0=就绪。 */
+    void setCloudCooldown(float frac) {
+        cloudCdFrac = MathX.clamp(frac, 0f, 1f);
+    }
 
     void setFlaskCounts(int crimson, int cerulean) {
         saveFlasksCrimson = crimson;
