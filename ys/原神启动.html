@@ -1811,16 +1811,16 @@ resize();addEventListener('resize',resize);
 /* iOS 转屏时 resize 常常只来一次、而且 innerHeight 还是旧值，补两次重排 */
 addEventListener('orientationchange',function(){resize();setTimeout(resize,220);setTimeout(resize,620);});
 
-const VS=`attribute vec3 aPos;attribute vec3 aNrm;attribute vec3 aColor;
+const VS=`attribute vec3 aPos;attribute vec3 aNrm;attribute vec4 aColor;
 uniform mat4 uMVP;uniform mat4 uModel;uniform mat3 uNrmMat;
-varying vec3 vNrm;varying vec3 vWPos;varying vec3 vCol;
-void main(){vec4 wp=uModel*vec4(aPos,1.0);vWPos=wp.xyz;vNrm=uNrmMat*aNrm;vCol=aColor;gl_Position=uMVP*vec4(aPos,1.0);}`;
+varying vec3 vNrm;varying vec3 vWPos;varying vec3 vCol;varying float vEmis;
+void main(){vec4 wp=uModel*vec4(aPos,1.0);vWPos=wp.xyz;vNrm=uNrmMat*aNrm;vCol=aColor.rgb;vEmis=aColor.w;gl_Position=uMVP*vec4(aPos,1.0);}`;
 const FS=`precision mediump float;
 uniform vec3 uColor;uniform vec3 uLightDir;uniform vec3 uLightColor;
 uniform vec3 uAmbient;uniform vec3 uFogColor;uniform float uFogNear;
 uniform float uFogFar;uniform vec3 uCamPos;uniform float uAlpha;uniform float uEmissive;
 uniform float uAdd;uniform float uDiss;uniform float uDissY;
-varying vec3 vNrm;varying vec3 vWPos;varying vec3 vCol;
+varying vec3 vNrm;varying vec3 vWPos;varying vec3 vCol;varying float vEmis;
 float dhash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+34.56);return fract(p.x*p.y);}
 void main(){
   vec3 n=normalize(vNrm);
@@ -1830,11 +1830,13 @@ void main(){
   vec3 viewDir=normalize(uCamPos-vWPos);
   vec3 halfV=normalize(viewDir-uLightDir);
   col+=uLightColor*pow(max(dot(n,halfV),0.0),24.0)*0.22;
-  col+=base*uEmissive;
+  /* 自发光：节点级 uEmissive 与顶点级 vEmis 取大——合批进 propTiles 的东西
+     只能走顶点那一路，不然一块 256m 里所有道具会被同一个强度一起点亮或一起熄灭。 */
+  col+=base*max(uEmissive,vEmis);
   /* 加色通道（发光特效）：背面会被光打暗、远处会被雾洗白，两者都不要。
      这里的输出还要按 SRC_ALPHA,ONE 叠加到背景上，所以系数必须压住：
      天空本身就有 0.8 的亮度，再叠一份满亮的自己就直接烧成白团。 */
-  if(uAdd>0.5)col=base*(0.22+uEmissive*0.45);
+  if(uAdd>0.5)col=base*(0.22+max(uEmissive,vEmis)*0.45);
   float d=length(uCamPos-vWPos);
   float f=clamp((d-uFogNear)/(uFogFar-uFogNear),0.0,1.0)*(1.0-uAdd);
   col=mix(col,uFogColor,f);
@@ -1903,9 +1905,20 @@ function createGeo(pos,nrm,idx,col){
   gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(pos),gl.STATIC_DRAW);
   const nbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,nbo);
   gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(nrm),gl.STATIC_DRAW);
+  /* 顶点色一律按 4 分量上传：rgb + 自发光强度。uEmissive 是"一次 draw 一个值"，
+     同一块合批里只有一部分东西发光时它救不了，所以自发光必须落到顶点上。
+     老的三段式生产者（地形、水面）不用改，这里自动补 0。 */
+  const nv=pos.length/3;
   let colArr;
-  if(col)colArr=new Float32Array(col);
-  else{colArr=new Float32Array(pos.length);for(let i=0;i<colArr.length;i++)colArr[i]=1;}
+  if(col&&col.length===nv*4)colArr=new Float32Array(col);
+  else{
+    colArr=new Float32Array(nv*4);
+    if(col)for(let i=0;i<nv;i++){
+      const j=i*4,k=i*3;
+      colArr[j]=col[k];colArr[j+1]=col[k+1];colArr[j+2]=col[k+2];
+    }
+    else for(let i=0;i<colArr.length;i+=4){colArr[i]=1;colArr[i+1]=1;colArr[i+2]=1;}
+  }
   const cbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,cbo);
   gl.bufferData(gl.ARRAY_BUFFER,colArr,gl.STATIC_DRAW);
   const ibo=gl.createBuffer();
@@ -2196,7 +2209,7 @@ function drawOne(node,vp,camPos){
     gl.bindBuffer(gl.ARRAY_BUFFER,g.nbo);
     gl.vertexAttribPointer(A.nrm,3,gl.FLOAT,false,0,0);
     gl.bindBuffer(gl.ARRAY_BUFFER,g.cbo);
-    gl.vertexAttribPointer(A.col,3,gl.FLOAT,false,0,0);
+    gl.vertexAttribPointer(A.col,4,gl.FLOAT,false,0,0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,g.ibo);
   }
   gl.drawElements(gl.TRIANGLES,g.count,g.type,0);
@@ -3150,6 +3163,142 @@ for(let qr=0;qr<3;qr++){
   }
 }
 let qiuBoss=null,qiuBossRespawnT=0,qiuBossSlain=0;
+/* ============ 层岩巨渊 · 地下矿区（独立地图）============
+   官方设定：巨坑之底还有一片被封锁的地下矿脉——漆黑、高低落差大、视野极差，
+   唯一的光是"只在层岩地下才会发光"的流明石，地缝里还会涌出能把人泡穿的黑泥。
+   做法照丘丘现代城：整块地界放到大陆地形网之外（璃月正南约 4.6 公里），
+   terrainHeight 在半径内无条件给地面高，进出只有坑底那道矿道口与一台井架提升机。
+   四周岩壁把天光全挡住，洞穴的"深"靠不见天日与浓雾来卖。 */
+/* 台面高取 +42 而不是负数：本作的浮力是按"地形低于海平面就是水"判的，
+   地下只要落在海平面以下，人会被当成泡在水里一路往上浮。绝对高度在这块
+   独立地界里没有意义，洞穴的"深"是靠不见天日和浓雾卖出来的。 */
+const CHSM=[120,-4480],CHSM_R=300,CHSM_FLOOR=42;
+const CHSM_WALL=282,CHSM_WALK=276;        // 岩壁起坡半径 / 可走硬夹取半径
+const CHSM_SPAN=CHSM_R+14;
+const CHSM_SPAWN=[CHSM[0],CHSM[1]+236];   // 落地平台：井架提升机前的临时主矿道口
+const CHSM_RET=[CHSM[0]+17,CHSM[1]+240];  // 回程井架
+const CHSM_HALL=[CHSM[0],CHSM[1]-158];    // 大石厅（boss 场）
+const CHSM_BOSS=CHSM_HALL;                // 首领落位与厅心同址
+const CHSM_CEIL=CHSM_FLOOR+52;            // 洞顶：一张倒扣的石板，钟乳从它上面垂下来
+/* 三条支洞的方位角：西矿道、东晶洞、南水牢，都从主矿道岔出去 */
+const CHSM_TUNNELS=[[Math.PI,34],[0,34],[Math.PI/2,30]];
+/* 黑泥涌口：官方"淤泥涌口"只能靠流明石的纯光绽放摧毁，这里一律要 1 格光值 */
+const CHSM_SLUDGE=[[62,-96,26],[-74,-40,22],[128,58,20],[-136,120,19],[8,-186,30]];
+/* 流明晶石点位（本作的"地下神瞳"）：沿主矿道与三条支洞撒开，共 24 枚 */
+const CHSM_CRYSTALS=[];
+for(let i=0;i<24;i++){
+  const a=i/24*TAU+0.13,r=54+((i*37)%200);
+  CHSM_CRYSTALS.push([Math.cos(a)*r,Math.sin(a)*r*0.92,(i%5===0)?9.5:3.2]);
+}
+/* 光源表：晶体堆、矿营灯火、帐篷提灯都往这里登记，光照玩法只查这张表 */
+const CHSM_LIGHTS=[];
+function chsmDist(x,z){return Math.hypot(x-CHSM[0],z-CHSM[1]);}
+/* 地下地面：一口缓坡石盆 + 北端抬升的大石厅 + 四周拔起的岩壁。
+   刻意写成"连续无断崖"的解析式——栈道、矿台、井架这些高差全部交给几何体
+   与 addCol 的支撑面，免得出现"看着是路、踩下去是虚空"的老坑。 */
+const CHSM_HALL_L=[CHSM_HALL[0]-CHSM[0],CHSM_HALL[1]-CHSM[1]];   // 厅台相对场心
+function chsmRaw(x,z){
+  const lx=x-CHSM[0],lz=z-CHSM[1],d=Math.hypot(lx,lz);
+  /* 主矿道是一条从南口往北缓缓抬升的走廊：走满 300 米大约升高 7 米 */
+  let h=CHSM_FLOOR+clamp((CHSM_R-lz)*0.012,0,7.2)
+       +Math.sin(lx*0.041)*Math.cos(lz*0.037)*1.15;
+  /* 大石厅：北端一整块抬 3.2 米的圆形厅台，46 米裙边缓接，boss 就盘在厅心 */
+  const hd=Math.hypot(lx-CHSM_HALL_L[0],lz-CHSM_HALL_L[1]);
+  if(hd<98)h=Math.max(h,h+3.2*clamp((98-hd)/46,0,1));
+  /* 四周岩壁：从可走线外 6 米起，40 米内拔到 +72，抬头只见黑岩不见天 */
+  if(d>CHSM_WALL-6){
+    const k=clamp((d-(CHSM_WALL-6))/40,0,1);
+    h+=k*k*(3-2*k)*72;
+  }
+  return h;
+}
+/* 流明石触媒：光值、上限、已摧毁的涌口、已收集的晶石数（全部要落盘） */
+const LUMEN_CAP0=3,LUMEN_CAP=7;
+const LUMEN_CY=[0.42,0.86,1.00],LUMEN_W=[0.82,0.98,1.00],MUD_V=[0.52,0.22,0.62];
+const LUMEN2=[0.82,0.98,1.00];      // 建模与 boss 建模共用，必须是全局的
+/* 地表的入口：巨坑底那口"往更深处去的洞口"（原有一块黑色圆盘做暗示，一直没接内容） */
+const CHSM_HOLE=[-8,-720];
+let chsmBoss=null,chsmBossRespawnT=0,chsmTopT=0,chsmCryst=0;
+let chsmVents=[],chsmGems=[],chsmGotGem={};
+/* ============ 渊下宫（独立地图）============
+   官方设定：海祇岛之下的白夜国遗迹，靛青浓雾、蓝白建筑、金纹与等边三角母题，
+   中心是"大日御舆"这座人造太阳，整体是一圈圈螺旋抬升的空岛，岛与岛之间是海渊。
+   同样是"远端孤岛"做法：整组放在稻妻以西 2.6 公里的大陆地形网之外，
+   台面走解析式（圆盘 + 桥带），台面之外就是虚空，踩空掉满 ENK_FALL 判死。 */
+const ENK=[-3600,2200],ENK_R=280,ENK_VOID=-30,ENK_FALL=17;
+const ENK_SPAN=ENK_R+16,ENK_ARENA_R=44;
+const ENK_SPAWN=[ENK[0],ENK[1]+232];            // 海渊之眼：上来的那道台阶
+const ENK_RET=[ENK[0]+26,ENK[1]+244];           // 回程月门
+const ENK_TOWER=[ENK[0]+96,ENK[1]+96];          // 大日御舆
+const ENK_BOSS=[ENK[0]+20,ENK[1]-232];          // 常夜之渊：跋掣的场子
+/* 七块地台由南往北一圈圈螺旋抬升，半径 36~56，台面高 0~54 */
+const ENK_PLATS=[
+  {dx:0,   dz:232, r:56, y:0,  n:'狭间之街'},
+  {dx:-104,dz:150, r:44, y:9,  n:'月门祭道'},
+  {dx:96,  dz:96,  r:42, y:18, n:'大日御舆'},
+  {dx:-52, dz:-14, r:46, y:27, n:'常世宫'},
+  {dx:132, dz:-104,r:36, y:36, n:'望舒台'},
+  {dx:-150,dz:-148,r:42, y:45, n:'无相之原'},
+  {dx:20,  dz:-232,r:50, y:54, n:'常夜之渊'}];
+/* 栈桥：两端地台的下标，宽 9 米。地台是一块块螺旋抬升的（每级差 9~27 米），
+   所以桥不能铺成水平面——那会在桥头留一道爬不上去的悬崖。桥面走一条坡道：
+   在 A 盘里等高 A.y，出了 A 沿按 smoothstep 升到 B.y，进 B 盘再等高。 */
+const ENK_BRIDGES=[[0,1],[1,3],[0,2],[2,4],[4,6],[3,5],[5,6],[3,6]];
+const ENK_WAYS=[];
+for(const b of ENK_BRIDGES){
+  const A=ENK_PLATS[b[0]],B=ENK_PLATS[b[1]];
+  const wx=B.dx-A.dx,wz=B.dz-A.dz,L=Math.hypot(wx,wz)||1;
+  ENK_WAYS.push({ax:A.dx,az:A.dz,ux:wx/L,uz:wz/L,L:L,
+    tA:A.r/L,tB:1-B.r/L,y0:A.y,y1:B.y,i0:b[0],i1:b[1]});
+}
+/* 桥带在参数 t 处的桥面高（两端各有一段与所在台面齐平，保证接榫处不出现台阶） */
+function enkWayY(w,t){
+  if(t<=w.tA)return w.y0;
+  if(t>=w.tB)return w.y1;
+  const u=clamp((t-w.tA)/(w.tB-w.tA),0,1);
+  return w.y0+(w.y1-w.y0)*(u*u*(3-2*u));
+}
+function enkDist(x,z){return Math.hypot(x-ENK[0],z-ENK[1]);}
+/* 台面上的"第二级地面"：一圈圈 0.5 米的台阶。解析式与建模都只读这一份数据，
+   所以不会出现"看着是台阶、踩下去是平地"，也不会把人送上够不着的高度。 */
+const ENK_DECKS=[];
+function enkStair(cx,cz,r0,r1,y0,y1,n){
+  for(let k=0;k<n;k++){
+    const t=(k+1)/n;
+    ENK_DECKS.push({dx:cx,dz:cz,r:r1+(r0-r1)*t,y:y0+(y1-y0)*t});
+  }
+}
+/* 两级"人造地面"：南口祭坛（七级、每级 0.5 米）与常夜之渊的环场看台（五级）。
+   每级抬升都必须 ≤ STEP_UP(0.55)，否则看着能上、脚上不去。 */
+enkStair(ENK_PLATS[0].dx,ENK_PLATS[0].dz+34,30,20,ENK_PLATS[0].y,ENK_PLATS[0].y+3.5,7);
+enkStair(ENK_PLATS[6].dx,ENK_PLATS[6].dz,50,44,ENK_PLATS[6].y,ENK_PLATS[6].y+2.5,5);
+function enkRaw(x,z){
+  const lx=x-ENK[0],lz=z-ENK[1];
+  let h=ENK_VOID;
+  for(const p of ENK_PLATS){
+    const d=Math.hypot(lx-p.dx,lz-p.dz);
+    if(d<p.r&&p.y>h)h=p.y;
+  }
+  for(const d of ENK_DECKS){
+    if(Math.hypot(lx-d.dx,lz-d.dz)<d.r&&d.y>h)h=d.y;
+  }
+  for(const w of ENK_WAYS){
+    const px=lx-w.ax,pz=lz-w.az;
+    const t=clamp((px*w.ux+pz*w.uz)/w.L,0,1);
+    /* 可走带宽 4.7：正好盖住 9 米宽的木板(4.5)再加一点，
+       比这个大就是"看不见的空气沿"，人会觉得能踩到木板外面去。 */
+    if(Math.hypot(px-w.ux*t*w.L,pz-w.uz*t*w.L)<4.7){
+      const y=enkWayY(w,t);
+      if(y>h)h=y;
+    }
+  }
+  return h;
+}
+let enkBoss=null,enkBossRespawnT=0,enkTopT=0;
+let enkSpin=[],enkEchoes=[],enkWhirl=null,enWhirlT=0;
+/* 立海：海祇岛中央那片潟湖，官方"海渊之眼"就在这一带的海里 */
+const ENK_WHIRL=[-1288,0];
+const chsmEchoes=[];
 /* ============ 冒险等级与世界等级 ============
    冒险等级（advLv）只是"资格线"：每满 10 级解锁一次世界等级突破，本身不给角色任何数值。
    世界等级（worldLv）才是全局难度旋钮：怪与 boss 血量 ×(1+WL)、攻击 ×(1+0.2·WL)，
@@ -3740,6 +3889,12 @@ function terrainHeight(x,z){
   /* 丘丘现代城：五公里外的浮空白台。它根本不在大陆地形网里，
      所以这里不用像天空岛那样按玩家区域开关，半径内一律是台面高。 */
   if(qiuDist(x,z)<QIU_R)h=QIU_FLOOR;
+  /* 层岩地下矿区：同样是一块五公里外的独立地界，半径内一律按石盆解析式给高。
+     取到 WALL+46 是为了把四周那圈拔起的岩壁也算进来（壁顶在可走线外 40 米处）。 */
+  if(chsmDist(x,z)<CHSM_WALL+46)h=chsmRaw(x,z);
+  /* 渊下宫：螺旋空岛。台面之外就是海渊，所以这里给的是 -30 的虚空底，
+     掉出去的人由 updatePlayer 的 enkan 分支判死，不靠这张高度图兜。 */
+  if(enkDist(x,z)<ENK_R+40)h=enkRaw(x,z);
   return h;
 }
 /* 平台裙边：r0 以内是台面，r0+blend 以外是原地形，中间 smoothstep */
@@ -4074,6 +4229,71 @@ function inaTint(wx,h,wz,slope,out){
     terrainTiles.push(mesh);
   }
 })();
+/* ---- 层岩地下矿区的地形网 ----
+   这块地界在大陆与稻妻两张网之外，所以必须自己烘一张：680m 见方、6m 网格
+   ≈ 13k 顶点，按 chsmRaw 的解析石盆取高，色带是"湿冷靛青灰 + 岩壁压紫"。
+   顶点色照旧走 terrainTiles，裁剪、雾与支撑面全都白拿。 */
+function chsmTint(x,y,z,ny,out){
+  const d=chsmDist(x,z);
+  const wall=clamp((d-(CHSM_WALL-6))/34,0,1);
+  /* 用户要"正常亮度"：石盆的岩面从 13% 灰提到 30% 一档，
+     仍然是冷灰蓝（洞穴感），但不再是一片糊黑。 */
+  let r=0.300+Math.sin(x*0.21)*Math.cos(z*0.17)*0.030;
+  let g=0.325+Math.sin(x*0.19+1.7)*Math.cos(z*0.23)*0.034;
+  let b=0.385+Math.sin(x*0.17+3.1)*Math.cos(z*0.19)*0.040;
+  /* 厅台与主矿道被灯火熏了几百年，暖一档；再往外是渗了黑泥的岩壁，压紫 */
+  const warm=clamp(1-Math.abs(d-150)/78,0,1)*0.34;
+  r+=warm*0.10;g+=warm*0.06;b-=warm*0.02;
+  r=lerp(r,0.200,wall);g=lerp(g,0.190,wall);b=lerp(b,0.270,wall);
+  /* 陡坡是背光面，压暗一点做出层次——但只压三成，不然整只盆又是黑的 */
+  const shade=clamp((0.86-ny)*2.2,0,0.30);
+  out[0]=r*(1-shade);out[1]=g*(1-shade);out[2]=b*(1-shade);
+  return out;
+}
+(function buildChasmTerrain(){
+  const X0=CHSM[0]-340,Z0=CHSM[1]-340,step=6,n=113;
+  const p=[],nr=[],col=[],tv=[0,0,0];
+  for(let y=0;y<=n;y++)for(let x=0;x<=n;x++){
+    const wx=X0+x*step,wz=Z0+y*step;
+    p.push(wx,terrainHeight(wx,wz),wz);
+  }
+  const st=n+1,e2=step*2;
+  for(let y=0;y<=n;y++){
+    const yc=y*st,yu=(y>0?y-1:y)*st,yd=(y<n?y+1:y)*st;
+    for(let x=0;x<st;x++){
+      const xl=x>0?x-1:x,xr=x<n?x+1:x;
+      const ax=p[(yc+xl)*3+1]-p[(yc+xr)*3+1];
+      const az=p[(yu+x)*3+1]-p[(yd+x)*3+1];
+      const l=Math.sqrt(ax*ax+e2*e2+az*az)||1;
+      nr.push(ax/l,e2/l,az/l);
+    }
+  }
+  for(let i=0;i<p.length;i+=3)chsmTint(p[i],p[i+1],p[i+2],nr[i+1],tv),col.push(tv[0],tv[1],tv[2]);
+  const TS=30;                        // 每块 30 格 ≈ 180 米：地下雾很近，块小一点剔得干净
+  const tx=Math.ceil((n+1)/TS),tz=Math.ceil((n+1)/TS);
+  for(let tz0=0;tz0<tz;tz0++)for(let tx0=0;tx0<tx;tx0++){
+    const i0=tx0*TS,i1=Math.min(n,i0+TS),j0=tz0*TS,j1=Math.min(n,j0+TS);
+    if(i1<=i0||j1<=j0)continue;
+    const w=i1-i0+1,h=j1-j0+1;
+    const cx=X0+(i0+(i1-i0)/2)*step,cz=Z0+(j0+(j1-j0)/2)*step;
+    const tp=[],tn=[],tc=[],ti=[];
+    for(let jj=0;jj<h;jj++)for(let ii=0;ii<w;ii++){
+      const gx=i0+ii,gz=j0+jj,k=(gz*st+gx)*3;
+      tp.push(p[k]-cx,p[k+1],p[k+2]-cz);
+      tn.push(nr[k],nr[k+1],nr[k+2]);
+      tc.push(col[k],col[k+1],col[k+2]);
+    }
+    for(let jj=0;jj<h-1;jj++)for(let ii=0;ii<w-1;ii++){
+      const a=jj*w+ii;
+      ti.push(a,a+w,a+w+1,a,a+w+1,a+1);
+    }
+    const mesh=new Node();
+    mesh.setPos(cx,0,cz);
+    mesh.geo=createGeo(tp,tn,ti,tc);
+    scene.add(mesh);
+    terrainTiles.push(mesh);
+  }
+})();
 /* ============ 水面 ============
    水面是海拔 WSL 的一张平面，只在"地面低于水位"的地方铺，并用等高线把每个格子
    裁出真实岸线。以前这张网只扫一个写死的矩形 [-120,280]×[-590,110]——那是璃月扩到
@@ -4273,8 +4493,12 @@ function bakeNode(n,P,N,C,I){
   const g=n.geo.src,pos=g.pos,nrm=g.nrm,col=g.col,idx=g.idx;
   const m=n.world,nm=n.normalMat;
   const cr=n.color[0]*n.tint[0],cg=n.color[1]*n.tint[1],cb=n.color[2]*n.tint[2];
+  /* 合批只带顶点色：节点的 emissive 必须折进顶点色的第 4 分量，否则金簇、窗光
+     这一类自发光道具烘进 propTiles 之后就再也不亮了。源顶点本身带值时取大，
+     不叠加——嵌套分组（灯座里再挂灯芯）不该把亮度乘两遍。 */
+  const em=n.emissive||0;
   const base=P.length/3;
-  for(let i=0;i<pos.length;i+=3){
+  for(let i=0,v=0;i<pos.length;i+=3,v++){
     const x=pos[i],y=pos[i+1],z=pos[i+2];
     P.push(m[0]*x+m[4]*y+m[8]*z+m[12],
            m[1]*x+m[5]*y+m[9]*z+m[13],
@@ -4283,7 +4507,8 @@ function bakeNode(n,P,N,C,I){
     let tx=nm[0]*a+nm[3]*b+nm[6]*c,ty=nm[1]*a+nm[4]*b+nm[7]*c,tz=nm[2]*a+nm[5]*b+nm[8]*c;
     const l=Math.sqrt(tx*tx+ty*ty+tz*tz)||1;
     N.push(tx/l,ty/l,tz/l);
-    C.push(col[i]*cr,col[i+1]*cg,col[i+2]*cb);
+    const j=v*4;
+    C.push(col[j]*cr,col[j+1]*cg,col[j+2]*cb,Math.max(em,col[j+3]));
   }
   for(let i=0;i<idx.length;i++)I.push(base+idx[i]);
 }
@@ -4379,6 +4604,8 @@ function propSpot(x,z,pad){
   if(domDist(x,z)<DOM_FLAT+10)return false;
   if(wbPadAt(x,z,8))return false;
   if(dsDist(x,z)<DS_EDGE+6)return false;
+  if(chsmDist(x,z)<CHSM_WALL+50)return false;        // 地下矿区自己长东西，大陆的林草不许进去
+  if(enkDist(x,z)<ENK_R+60)return false;              // 渊下宫同理：那些地台是自己铺的
   if(roadAt(x,z)<ROAD_W+1.5)return false;            // 官道上不留东西
   return true;
 }
@@ -8294,16 +8521,47 @@ function lyFlat(x,z,r){LY_FLATS.push({x:x,z:z,r:r});}
       c.rz=rnd(-0.9,0.9);c.rx=rnd(-0.5,0.5);
       lyFlat(x,z,2.0);
     }
-    const x=MI[0]+10,z=MI[1]+6,y=terrainHeight(x,z);
-    for(const s of[-1,1]){
-      at(GEO.cylinder,WOOD,x+s*2.4,y+1.8,z,0.22,1.8,0.22,0);
-      at(GEO.cylinder,WOOD,x+s*2.4,y+3.6,z,0.22,1.9,0.22,0);
+    /* ---- 坑底这条往更深处去的矿道 = 层岩地下的唯一入口 ----
+       原来只是地上一块 4 米的黑圆盘：站在坑沿根本找不着它（"地上的入口我没找到"）。
+       现在给它石砌锁口、井口木架、绞盘与吊笼、两盏矿灯，外加一柱升到半空的青色光柱，
+       从坑沿哪个方向看下来都是"这儿有个洞"。 */
+    const hx=MI[0]+10,hz=MI[1]+6,hy=terrainHeight(hx,hz);
+    at(GEO.cylinder,DARK,hx,hy+0.10,hz,5.0,0.5,5.0,0);            // 喉口
+    for(let i=0;i<14;i++){                                         // 锁口一圈石砌块
+      const a=i/14*TAU,bx=hx+Math.cos(a)*5.9,bz=hz+Math.sin(a)*5.9;
+      at(GEO.box,STONE,bx,hy+0.62,bz,2.0,1.1,1.4,a+Math.PI/2);
+      addCol(bx,bz,1.15,hy+1.2);
     }
-    at(GEO.box,WOOD,x,y+3.9,z,6.2,0.3,0.7,0);
-    at(GEO.cylinder,DARK,x,y+0.2,z,2.0,0.4,2.0,0);            // 坑底还有一条往更深处去的洞口
-    at(GEO.box,WOOD2,x+3.4,y+0.6,z+2.2,1.3,1.0,1.3,0.4);
-    at(GEO.box,[0.72,0.66,0.56],x-3.6,y+0.5,z-1.6,1.7,1.0,1.2,1.1);
-    lyFlat(x,z,8);
+    at(geoRing(5.0,6.7,36),ROCK,hx,hy+1.22,hz,1,1,1,0);             // 压边
+    for(const s of[-1,1]){                                          // 井口木架
+      at(GEO.cylinder,WOOD,hx+s*3.0,hy+2.4,hz,0.26,4.8,0.26,0);
+      at(GEO.cylinder,WOOD,hx+s*3.0,hy+6.4,hz,0.22,3.2,0.22,0);
+      addCol(hx+s*3.0,hz,0.35,hy+8.0);
+    }
+    at(GEO.box,WOOD,hx,hy+8.2,hz,7.8,0.42,0.9,0);
+    const drum=at(GEO.cylinder,WOOD2,hx,hy+7.7,hz+1.0,0.55,0.5,0.55,0);
+    drum.rx=Math.PI/2;
+    for(const s of[-1,1])
+      at(GEO.cylinder,WOOD2,hx+s*0.62,hy+7.7,hz+1.0,0.62,0.12,0.62,0);
+    at(GEO.cylinder,[0.20,0.18,0.16],hx,hy+4.6,hz+1.0,0.06,5.8,0.06,0);   // 吊索
+    at(GEO.box,WOOD2,hx,hy+1.5,hz+1.0,1.5,1.3,1.5,0.4);                   // 吊笼
+    for(const s of[-1,1]){                                          // 横梁上两盏矿灯
+      const lp=makeMesh(GEO.sphere8,LANT,0.95);
+      lp.setPos(hx+s*3.4,hy+8.9,hz).setScale(0.42,0.5,0.42);
+      lp.emissive=1.5;lp.glow=1;live.add(lp);
+    }
+    at(GEO.box,WOOD,hx-7.4,hy+1.3,hz+3.2,0.24,2.6,0.24,0.5);         // 指路木牌
+    const sign=at(GEO.box,MAU,hx-7.4,hy+2.4,hz+3.2,2.6,0.5,0.16,0.5);
+    sign.rz=0.1;
+    at(GEO.box,WOOD2,hx+7.6,hy+0.55,hz-4.0,1.6,1.1,1.6,0.7);         // 矿箱
+    at(GEO.box,[0.72,0.66,0.56],hx-8.9,hy+0.5,hz-4.2,1.7,1.0,1.2,1.1);
+    /* 光柱与顶环挂 live：辉光进不了合批，而这道光就是"从坑沿找入口"的靶子 */
+    const beam=makeMesh(GEO.cylinder,[0.42,0.86,1.0],0.26);
+    beam.setPos(hx,hy+16,hz).setScale(3.2,30,3.2);
+    beam.emissive=1.1;beam.glow=1;live.add(beam);
+    const crown=makeMesh(geoRing(3.4,5.2,36),[0.56,0.94,1.0],0.5);
+    crown.setPos(hx,hy+30.6,hz);crown.emissive=1.2;crown.glow=1;live.add(crown);
+    lyFlat(hx,hz,9);
     /* 矿井井架：四根木柱撑一道横梁，横梁上垂一条锁链吊着矿笼。
        旧写法是"坑底高度+坑深+6"起链，等于把链条凭空挂在半空（链顶比坑沿还高 20m），
        现在给链条一个看得见撑着的东西。 */
@@ -9407,7 +9665,7 @@ function registerInazuma(){
 }
 
 /* 璃月的每帧活：地界判定、进境播报，以及船、灯笼、云环的轻微动 */
-let lyT=0,lyAnnounced=false;
+let lyT=0,lyAnnounced=false,chsmHinted=false;
 function updateLiyue(dt){
   const inLy=player.zone==='field'&&inLyAt(player.pos[0],player.pos[2]);
   player.onLy=inLy;
@@ -9416,6 +9674,14 @@ function updateLiyue(dt){
     bigMsg('璃月 · 天遒谷');
     toast('出了蒙德地界：北上过荻花洲就是璃月港，岩王帝君像在归离原池边');
   }else if(!inLy&&lyAnnounced)lyAnnounced=false;
+  /* 地下矿区的入口就在巨坑底：第一次靠近点一句，别让人在坑沿转半天找不到。
+     注意别用 inLyAt 当闸门——天坑正压在璃月地界的权重边缘上（实测 0.72 不到），
+     用距离判才靠得住。 */
+  if(player.zone==='field'&&!chsmHinted&&
+     Math.hypot(player.pos[0]-CHSM_HOLE[0],player.pos[2]-CHSM_HOLE[1])<150){
+    chsmHinted=true;
+    toast('巨坑底那道青色光柱与石砌锁口就是入口：走近按 F 钻进「层岩巨渊 · 地下矿区」');
+  }
   lyT+=dt;
   for(const b of LY_BOB){
     b.node.py=b.y+Math.sin(lyT*1.35+b.ph)*0.1;
@@ -11335,7 +11601,7 @@ const INA_CITY_GLOWS=[];
 })();
 /* ---------- 海祇 / 清籁 / 离岛：三座主岛与三座小岛的实景内容 ----------
    静态件全部赶在 mergeProps() 之前进 propRoot；会呼吸的雷光挂 worldRoot，
-   因为合批只留顶点色，emissive 与 alpha 都会被洗掉。
+   因为合批只留顶点色与自发光，alpha 与 glow 都会被洗掉。
    宝箱只记坐标：interactables 是 const，要等 bootStep 里的 registerInazuma() 才能 makeChest。 */
 const INA_CHESTS=[],INA_GLOWS=[];
 const inaGlowRoot=new Node();scene.add(inaGlowRoot);
@@ -12144,9 +12410,9 @@ function updateInazuma(dt){
 }
 
 /* ============ 世界boss场地：石环、法阵、符柱与火盆 ============
-   台面本身由 terrainHeight 压平到 b.y，这里只补石作。所有石件必须是实色：
-   mergeProps 只烘焙 position/normal/color*tint，alpha 与 emissive 会被丢掉，
-   所以焰心单独挂到 scene 上（不能挂 propRoot，否则合批后不会发光）。 */
+   台面本身由 terrainHeight 压平到 b.y，这里只补石作。石件可以是自发光的
+   （emissive 会随顶点色一起烘进去），但 alpha 与 glow 会被 mergeProps 丢掉，
+   所以会跳动的焰心仍然单独挂到 scene 上（挂 propRoot 就没有呼吸）。 */
 const WB_FLAMES=[];
 function buildWBArenas(){
   const stoneA=[0.66,0.63,0.56],stoneB=[0.50,0.48,0.44];
@@ -12220,7 +12486,7 @@ function buildWBArenas(){
 buildWBArenas();
 /* ============ 丘丘现代城：浮空台地上的白色都会 ============
    浅色混凝土、玻璃幕墙、绿化带与成排路灯——不是霓虹。
-   静态件全部烘进合批（亮色只能靠顶点色，合批会丢 emissive/alpha），
+   静态件全部烘进合批（emissive 会跟着顶点色一起烘住，alpha 与 glow 仍然会丢），
    会转的广场雕塑与传送门单独挂在 live 节点上，由 updateQiuCity 驱动。 */
 (function buildQiuCity(){
   const Y=QIU_FLOOR;
@@ -12566,6 +12832,619 @@ buildWBArenas();
   /* 静态件写的是 QIUP 局部坐标（动态节点与碰撞柱另行加过偏移），
      合批烘焙的是世界矩阵，所以整组必须先在原点之外落位，否则整座城压在世界原点。 */
   root.setPos(QIUP[0],0,QIUP[1]);
+})();
+/* ============ 层岩巨渊 · 地下矿区：建模 ============
+   静态件全部烘进合批（emissive 现在会随顶点色烘住，但 glow 与 alpha 仍会丢，
+   所以要辉光的一律走 liveAt 挂 live 节点），光源、涌口、晶石这些要动的东西
+   单独挂在 live 节点上，由 updateChasmUnder 驱动。 */
+(function buildChasmUnder(){
+  const root=new Node();propRoot.add(root);
+  /* 合批烘的是世界矩阵，所以整组必须先落到场心之外，否则整座矿压在世界原点 */
+  root.setPos(CHSM[0],0,CHSM[1]);
+  const live=new Node();worldRoot.add(live);
+  const ROCK=[0.30,0.31,0.38],ROCK2=[0.23,0.24,0.31],RUB=[0.34,0.33,0.37];
+  const WOOD=[0.35,0.24,0.15],WOOD2=[0.25,0.18,0.12],RUST=[0.34,0.25,0.22];
+  const IRON=[0.40,0.42,0.48],STONE=[0.36,0.37,0.43];
+  const LAMP=[1.0,0.74,0.34];
+  const LUMEN=[0.42,0.86,1.00],LUMEN2=[0.82,0.98,1.00];
+  const MUD=[0.075,0.05,0.115],MUDG=[0.52,0.24,0.62];
+  const gy=(lx,lz)=>chsmRaw(CHSM[0]+lx,CHSM[1]+lz);
+  /* 落点取地面高：这件东西摆在 (lx,lz)，中心高度 = 地面 + dy */
+  const put=function(geo,cc,lx,lz,sx,sy,sz,dy,rx,ry,rz){
+    const m=makeMesh(geo,cc);
+    m.setPos(lx,gy(lx,lz)+(dy||0),lz).setScale(sx,sy,sz);
+    if(rx||ry||rz)m.setRot(rx||0,ry||0,rz||0);
+    root.add(m);return m;
+  };
+  /* 绝对高度摆放：吊在支架上的灯、悬在洞顶的钟乳石不吃地面 */
+  const at=function(geo,cc,lx,yy,lz,sx,sy,sz,ry){
+    const m=makeMesh(geo,cc);
+    m.setPos(lx,yy,lz).setScale(sx,sy,sz);
+    if(ry)m.ry=ry;root.add(m);return m;
+  };
+  const liveAt=function(geo,cc,lx,lz,sx,sy,sz,dy,alpha,emis,glow){
+    const m=makeMesh(geo,cc,alpha===undefined?1:alpha);
+    m.setPos(CHSM[0]+lx,gy(lx,lz)+(dy||0),CHSM[1]+lz).setScale(sx,sy,sz);
+    if(emis)m.emissive=emis;
+    if(glow)m.glow=1;
+    live.add(m);return m;
+  };
+  const addLight=(lx,lz,r,p)=>CHSM_LIGHTS.push({x:CHSM[0]+lx,z:CHSM[1]+lz,r:r,p:p||1});
+  /* ---- 盆底：碎石、岩脊与被采空的矿脉，先给地面一点"被人挖过"的细节 ---- */
+  for(let i=0;i<74;i++){
+    const a=i*2.399963,r=26+((i*53)%238);
+    const lx=Math.cos(a)*r,lz=Math.sin(a)*r;
+    if(Math.hypot(lx,lz)>CHSM_WALL-14)continue;
+    put(i%3?GEO.box:GEO.sphere8,i%2?ROCK2:RUB,lx,lz,
+      rnd(1.1,3.4),rnd(0.4,1.5),rnd(1.1,3.2),rnd(-0.2,0.35),0,rnd(0,TAU),0);
+  }
+  for(let i=0;i<26;i++){
+    const a=i/26*TAU+0.1,r=96+((i*71)%150);
+    put(GEO.box,ROCK2,Math.cos(a)*r,Math.sin(a)*r,rnd(5,13),rnd(0.6,2.2),rnd(2.4,6),
+      rnd(0.2,1.1),0,rnd(0,TAU),0);
+  }
+  /* ---- 岩壁：48 段巨岩围成一圈，壁顶再压一排落石把天际线彻底封掉 ---- */
+  for(let i=0;i<48;i++){
+    const a=i/48*TAU,cs=Math.cos(a),sn=Math.sin(a),r=CHSM_WALL+2;
+    put(GEO.box,ROCK2,cs*r,sn*r,16,rnd(30,52),22,12,0,-a,0);
+    const ix=cs*(r-13),iz=sn*(r-13);
+    at(GEO.cone,ROCK2,ix,gy(ix,iz)+rnd(3,9),iz,5.5,rnd(9,19),5.5,-a);
+  }
+  /* ---- 壁上的矿脉：金脉与流明脉交替，一路爬到视野尽头。
+     这些是合批件，emissive 现在能跟着顶点色烘住，所以真的会亮。 ---- */
+  for(let i=0;i<22;i++){
+    const a=i/22*TAU+0.13,cs=Math.cos(a),sn=Math.sin(a),r=CHSM_WALL-7.5;
+    const gold=(i%3===0);
+    for(let k=0;k<4;k++){
+      const vx=cs*(r-k*1.6)-sn*((k%2)?2.6:-2.1);
+      const vz=sn*(r-k*1.6)+cs*((k%2)?2.6:-2.1);
+      const m=put(GEO.box,gold?[0.86,0.68,0.28]:LUMEN2,vx,vz,
+        rnd(1.6,3.0),rnd(0.5,1.0),rnd(1.1,2.2),0.35+k*0.5,0,-a,0);
+      m.emissive=gold?0.9:1.15;
+    }
+    if(i%5===0)addLight(cs*(r-4),sn*(r-4),24,0.7);
+  }
+  /* ---- 壁前九副木脚手架：把"还在挖"这件事立到墙根 ---- */
+  for(let i=0;i<9;i++){
+    const a=i/9*TAU+0.4,cs=Math.cos(a),sn=Math.sin(a),r=CHSM_WALL-16;
+    for(const q of[-1,1])for(const t of[-1,1]){
+      const hx=cs*r+q*3.2*cs+t*2.8*(-sn),hz=sn*r+q*3.2*sn+t*2.8*cs;
+      const hh=rnd(9,14);
+      put(GEO.cylinder,WOOD,hx,hz,0.22,hh,0.22,hh/2);
+      addCol(CHSM[0]+hx,CHSM[1]+hz,0.3,gy(hx,hz)+hh);
+    }
+    for(let k=0;k<3;k++)
+      put(GEO.box,WOOD2,cs*r,sn*r,8.2,0.24,1.6,3.0+k*3.6,0,Math.PI/2-a,0);
+  }
+  /* ---- 坑底起伏：碎石扇（踩得上去）与巨石（撞得回来）---- */
+  const hlx=CHSM_HALL[0]-CHSM[0],hlz=CHSM_HALL[1]-CHSM[1];
+  for(let i=0;i<26;i++){
+    const a=i*2.399963,r=40+((i*67)%190);
+    const lx=Math.cos(a)*r,lz=Math.sin(a)*r;
+    if(Math.hypot(lx,lz)>CHSM_WALL-18)continue;
+    if(Math.hypot(lx-hlx,lz-hlz)<78)continue;        // 大石厅里不塞石头
+    if(i%3===0){
+      const w=rnd(4.2,7.0);
+      put(GEO.sphere8,ROCK,lx,lz,w,rnd(2.4,3.8),w*0.86,w*0.34,0,rnd(0,TAU),0);
+      addCol(CHSM[0]+lx,CHSM[1]+lz,w*0.44,gy(lx,lz)+w*0.34);
+    }else{
+      put(GEO.hem,RUB,lx,lz,rnd(6,12),0.5,rnd(5,9),0.16,0,rnd(0,TAU),0);
+    }
+  }
+  /* ---- 洞顶垂下的三只废吊笼：抬头有东西，洞穴才不像扣住的脸盆 ---- */
+  for(let i=0;i<3;i++){
+    const a=i/3*TAU+1.1,r=90+i*44;
+    const lx=Math.cos(a)*r,lz=Math.sin(a)*r;
+    const drop=CHSM_CEIL-13-i*4;
+    at(GEO.cylinder,IRON,lx,(CHSM_CEIL+drop)/2,lz,0.12,CHSM_CEIL-drop,0.12,0);
+    for(const s of[-1,1]){
+      at(GEO.box,WOOD2,lx+s*1.3,drop-1.1,lz,0.2,2.2,0.2,0);
+      at(GEO.box,WOOD2,lx,drop-1.1,lz+s*1.3,0.2,2.2,0.2,0);
+    }
+    at(GEO.box,ROCK,lx,drop-2.4,lz,3.0,0.24,3.0,0);
+  }
+  /* ---- 南口：井架提升机与落地石台（下来第一眼看的东西，要够高够亮） ---- */
+  const ex=CHSM_SPAWN[0]-CHSM[0],ez=CHSM_SPAWN[1]-CHSM[1];
+  put(GEO.cylinder,STONE,ex,ez,17,0.7,17,0.3);
+  put(geoRing(15.4,17,56),ROCK,ex,ez,1,1,1,0.68);
+  for(const s of[-1,1]){
+    for(const q of[-1,1]){
+      put(GEO.box,WOOD,ex+s*7.4,ez+q*6.2,0.9,17,0.9,8.5);
+      put(GEO.box,WOOD2,ex+s*7.4,ez+q*6.2,1.5,0.7,1.5,16.6);
+    }
+    put(GEO.box,WOOD,ex+s*7.4,ez,0.7,0.7,13.4,12.4);
+    put(GEO.box,WOOD,ex+s*7.4,ez,0.7,0.7,13.4,5.2);
+  }
+  put(GEO.box,WOOD,ex,ez-6.6,16.6,0.8,1.1,15.6);
+  put(GEO.box,WOOD,ex,ez+6.6,16.6,0.8,1.1,15.6);
+  put(GEO.cylinder,IRON,ex,ez,2.9,1.1,2.9,16.2,Math.PI/2,0,0);
+  put(GEO.box,RUST,ex,ez,1.1,1.1,7.4,17.1);
+  put(GEO.box,RUST,ex,ez+4.2,1.2,2.2,1.2,1.1);
+  at(GEO.box,IRON,ex,gy(ex,ez)+9.6,ez+4.2,0.9,1.6,1.1,0);
+  put(GEO.box,WOOD2,ex+13,ez-2,5.2,1.5,3.6,0.75);       // 矿车周转台
+  liveAt(GEO.sphere8,LAMP,ex-6.4,ez+7.2,0.5,0.62,0.5,2.6,0.95,1.5,1);
+  liveAt(GEO.sphere8,LAMP,ex+6.4,ez+7.2,0.5,0.62,0.5,2.6,0.95,1.5,1);
+  addLight(ex-6.4,ez+7.2,25);addLight(ex+6.4,ez+7.2,25);
+  addCol(CHSM[0]+ex,CHSM[1]+ez,16.5,gy(ex,ez)+1.05);
+  /* ---- 主矿道：从南口一路到石厅，每 15 米一副木支架，隔三架吊一盏矿灯 ---- */
+  const railZ=[];
+  for(let z=ez-14;z>CHSM_HALL_L[1]+58;z-=15){
+    railZ.push(z);
+    const y=gy(0,z);
+    for(const s of[-1,1])
+      at(GEO.box,WOOD,s*4.6,y+2.9,z,0.75,5.8,0.75,0);
+    at(GEO.box,WOOD,0,y+5.9,z,10.4,0.8,0.9,0);
+    at(GEO.box,WOOD2,-4.9,y+4.2,z,0.5,0.5,9.4,0);
+    at(GEO.box,WOOD2,4.9,y+4.2,z,0.5,0.5,9.4,0);
+    if(railZ.length%3===0){
+      const lm=liveAt(GEO.sphere8,LAMP,0,z,0.42,0.5,0.42,0);
+      lm.py=y+5.1;addLight(0,z,26);
+      at(GEO.box,IRON,0,y+5.5,z,0.16,0.7,0.16,0);
+    }
+  }
+  for(const s of[-1,1])
+    for(let i=0;i<railZ.length-1;i++)
+      at(GEO.box,RUST,s*1.5,gy(s*1.5,railZ[i])+0.12,railZ[i],0.22,0.22,15,0);
+  /* ---- 三条支洞：洞口一副大拱架 + 两翼夹墙，洞底塞一簇流明晶 ---- */
+  for(let ti=0;ti<CHSM_TUNNELS.length;ti++){
+    const ang=CHSM_TUNNELS[ti][0],len=CHSM_TUNNELS[ti][1];
+    const cs=Math.cos(ang),sn=Math.sin(ang),r0=64+len;
+    for(const s of[-1,1]){
+      const px=cs*r0-sn*(len*0.5+8),pz=sn*r0+cs*(len*0.5+8);
+      put(GEO.box,ROCK2,px,pz,7.4,rnd(14,20),16,6,0,ang,0);
+    }
+    put(GEO.box,WOOD,cs*(r0-4),sn*(r0-4),11.5,1.2,1.2,5.6,0,-ang,0);
+    for(const s of[-1,1])
+      put(GEO.box,WOOD,cs*(r0-4)-sn*s*5.2,sn*(r0-4)+cs*s*5.2,1.1,11,1.1,5.5,0,-ang,0);
+    /* 洞底的晶体簇：三片合批晶簇 + 一颗 live 发光核，核才是光照玩法里的光源 */
+    const cx=cs*(r0-16),cz=sn*(r0-16);
+    for(let k=0;k<4;k++){
+      const a2=k/4*TAU+ti;
+      put(GEO.cone,LUMEN,cx+Math.cos(a2)*2.4,cz+Math.sin(a2)*2.4,
+        1.1,rnd(2.6,5.2),1.1,1.6,Math.sin(a2)*0.34,-a2,Math.cos(a2)*0.34);
+    }
+    liveAt(GEO.sphere8,LUMEN2,cx,cz,1.5,1.7,1.5,2.4,0.85,1.7,1);
+    addLight(cx,cz,34,1.15);
+    addCol(CHSM[0]+cx,CHSM[1]+cz,3,gy(cx,cz)+4);
+  }
+  /* ---- 矿车与散落工具：现代矿业的尺度参照 ---- */
+  for(let i=0;i<7;i++){
+    const z=railZ[2+i*3]||railZ[railZ.length-1-i];
+    const s=i%2?1:-1;
+    put(GEO.box,RUST,s*1.5,z,2.3,1.5,3.4,1.5,0,s>0?0.04:-0.04,0);
+    put(GEO.box,WOOD,s*1.5,z-2.1,1.6,0.5,0.6,2.5);
+    for(const q of[-1,1])
+      put(GEO.cylinder,IRON,s*1.5+q*1.25,z,0.42,0.42,0.42,0.45,0,0,Math.PI/2);
+  }
+  for(let i=0;i<16;i++){
+    const a=i*1.7,r=40+((i*67)%210);
+    put(GEO.box,WOOD2,Math.cos(a)*r,Math.sin(a)*r,rnd(0.3,0.6),rnd(1.6,2.8),rnd(0.3,0.6),
+      rnd(0.2,0.5),0,rnd(0,TAU),Math.PI/2);
+  }
+  /* ---- 四处矿营：木棚 + 火盆（火盆是这一带唯一暖光，也是黑泥的安全岛） ---- */
+  const CAMPS=[[92,132],[-104,86],[146,-52],[-150,-116]];
+  for(let i=0;i<CAMPS.length;i++){
+    const cx=CAMPS[i][0],cz=CAMPS[i][1];
+    for(const s of[-1,1])
+      put(GEO.box,WOOD,cx-s*3.1,cz,0.5,3.4,0.5,1.7);
+    put(GEO.box,WOOD2,cx,cz-2.4,8.4,0.4,6.4,3.9);
+    put(GEO.box,WOOD,cx,cz,7.2,0.35,5.2,3.4);
+    put(GEO.box,RUB,cx,cz+2.9,6.4,1.6,0.5,0.9);
+    put(GEO.cylinder,IRON,cx+4.2,cz+1.6,1.1,0.5,1.1,0.3);
+    liveAt(GEO.sphere8,LAMP,cx+4.2,cz+1.6,0.85,0.5,0.85,0.75,0.9,1.9,1);
+    addLight(cx+4.2,cz+1.6,30,1.2);
+    addCol(CHSM[0]+cx,CHSM[1]+cz,4.6,gy(cx,cz)+4.1);
+    for(let k=0;k<3;k++)
+      put(GEO.box,WOOD2,cx-2+k*2,cz-4.4,0.4,0.9,0.4,0.45);
+  }
+  /* ---- 黑泥沼：泥面 + 荧光边 + 中央的淤泥涌口（涌口要烧 1 格光值才能摧毁） ---- */
+  for(let i=0;i<CHSM_SLUDGE.length;i++){
+    const sx=CHSM_SLUDGE[i][0],sz=CHSM_SLUDGE[i][1],sr=CHSM_SLUDGE[i][2];
+    put(GEO.cylinder,MUD,sx,sz,sr,0.5,sr,0.06);
+    const rim=liveAt(geoRing(sr-1.5,sr,48),MUDG,sx,sz,1,1,1,0.34,0.75,0.9,1);
+    chsmVents.push({x:CHSM[0]+sx,z:CHSM[1]+sz,r:sr,g:rim,dead:false,
+      y:gy(sx,sz),ph:i*1.1});
+    for(let k=0;k<4;k++){
+      const a=k/4*TAU+0.4;
+      put(GEO.cone,MUDG,sx+Math.cos(a)*sr*0.55,sz+Math.sin(a)*sr*0.55,
+        1.3,rnd(2.4,4.6),1.3,1.4,Math.sin(a)*0.3,-a,Math.cos(a)*0.3);
+    }
+    const vm=liveAt(GEO.sphere8,MUDG,sx,sz,2.2,2.6,2.2,1.5,0.8,1.6,1);
+    chsmVents[chsmVents.length-1].core=vm;
+  }
+  /* ---- 大石厅：12 根断柱围成一圈，中央高台是溟泥之主的位置 ---- */
+  const hx=CHSM_HALL_L[0],hz=CHSM_HALL_L[1];
+  put(GEO.cylinder,STONE,hx,hz,54,1.4,54,0.4);
+  put(geoRing(50,54,72),ROCK,hx,hz,1,1,1,1.12);
+  for(let i=0;i<12;i++){
+    const a=i/12*TAU,r=44;
+    const px=hx+Math.cos(a)*r,pz=hz+Math.sin(a)*r;
+    const hh=rnd(6.5,14);
+    put(GEO.cylinder,STONE,px,pz,2.1,hh,2.1,hh/2+0.9);
+    put(GEO.box,ROCK2,px,pz,5.2,rnd(0.8,1.8),5.2,hh+1.5,0,a,0);
+    addCol(CHSM[0]+px,CHSM[1]+pz,2.4,gy(px,pz)+hh+2.4);
+  }
+  put(GEO.cylinder,STONE,hx,hz,13,2.6,13,1.3);
+  put(geoRing(11.4,13,48),MUDG,hx,hz,1,1,1,2.62);
+  addCol(CHSM[0]+hx,CHSM[1]+hz,13,gy(hx,hz)+3.9);
+  for(let i=0;i<4;i++){
+    const a=i/4*TAU+Math.PI/4,r=30;
+    liveAt(GEO.sphere8,LUMEN2,hx+Math.cos(a)*r,hz+Math.sin(a)*r,
+      1.1,1.4,1.1,3.2,0.9,1.8,1);
+    put(GEO.box,IRON,hx+Math.cos(a)*r,hz+Math.sin(a)*r,0.4,3.2,0.4,1.6);
+    addLight(hx+Math.cos(a)*r,hz+Math.sin(a)*r,32,1.1);
+  }
+  /* ---- 两座木栈道：跨在黑泥上，走上去比蹚泥安全 ---- */
+  const BR=[[62,-96,0.9],[-136,120,-0.5]];
+  for(let i=0;i<BR.length;i++){
+    const bx=BR[i][0],bz=BR[i][1],ba=BR[i][2];
+    for(let k=-4;k<=4;k++){
+      const px=bx+Math.cos(ba)*k*3.1,pz=bz+Math.sin(ba)*k*3.1;
+      put(GEO.box,WOOD,px,pz,3.2,0.3,2.9,1.5,0,ba,0);
+      if(k%2===0)for(const s of[-1,1])
+        put(GEO.box,WOOD2,px-Math.sin(ba)*s*1.4,pz+Math.cos(ba)*s*1.4,
+          0.3,3.2,0.3,0,0,ba,0);
+    }
+    addCol(CHSM[0]+bx,CHSM[1]+bz,12,gy(bx,bz)+1.68);
+  }
+  /* ---- 洞顶：一张倒扣的石板。没有它，抬头就是星空，洞穴的假感立刻穿帮 ---- */
+  const roof=makeMesh(GEO.disc,ROCK2);
+  roof.setPos(0,CHSM_CEIL,0).setScale(CHSM_WALL+52,1,CHSM_WALL+52);
+  roof.rx=Math.PI;root.add(roof);
+  for(let i=0;i<9;i++){
+    const a=i/9*TAU+0.3,r=CHSM_WALL*0.55;
+    at(GEO.cylinder,ROCK2,Math.cos(a)*r,CHSM_CEIL-3.5,Math.sin(a)*r,
+      34,7,34,a);
+  }
+  /* ---- 洞顶垂落的钟乳：全部钉在洞顶下沿，不再"悬在半空" ---- */
+  for(let i=0;i<34;i++){
+    const a=i*1.9,r=CHSM_WALL-rnd(6,34);
+    const lx=Math.cos(a)*r,lz=Math.sin(a)*r,hh=rnd(6,15);
+    at(GEO.cone,ROCK2,lx,CHSM_CEIL-hh*0.5,lz,
+      rnd(1.2,2.6),hh,rnd(1.2,2.6),a);
+  }
+  for(let i=0;i<22;i++){
+    const a=i*2.4,r=CHSM_WALL-rnd(10,40);
+    const lx=Math.cos(a)*r,lz=Math.sin(a)*r;
+    put(GEO.cone,LUMEN,lx,lz,rnd(0.7,1.5),rnd(2.2,4.4),rnd(0.7,1.5),rnd(0.4,1.6),
+      rnd(-0.3,0.3),a,rnd(-0.3,0.3));
+    if(i%4===0)addLight(lx,lz,20,0.75);
+  }
+  /* ---- 24 枚流明晶石：本作的"地下神瞳"，亮青色小晶块，浮在半人高 ---- */
+  const gemNodes=[];
+  for(let i=0;i<CHSM_CRYSTALS.length;i++){
+    const c=CHSM_CRYSTALS[i];
+    const g=liveAt(GEO.sphere8,LUMEN2,c[0],c[1],0.62,0.9,0.62,c[2],0.92,1.9,1);
+    gemNodes.push(g);
+  }
+  chsmGems=gemNodes;
+})();
+/* ============ 渊下宫：建模 ============
+   蓝白立方民居 + 金纹月门 + 中央大日御舆，一圈圈螺旋抬升的地台之间靠栈桥连，
+   桥外就是海渊。发光的海底植物与月门是这一区的全部光源。 */
+(function buildEnkanomiya(){
+  const root=new Node();propRoot.add(root);
+  root.setPos(ENK[0],0,ENK[1]);
+  const live=new Node();worldRoot.add(live);
+  const DECK=[0.20,0.27,0.40],DECK2=[0.14,0.19,0.30],RIM=[0.30,0.40,0.55];
+  const WHT=[0.80,0.87,0.93],WHT2=[0.66,0.76,0.86],DOM=[0.24,0.44,0.68];
+  const GOLD=[0.92,0.78,0.40],CYAN=[0.44,0.86,0.98],CORAL=[0.46,0.86,0.78];
+  const ROCK=[0.13,0.17,0.26],WOOD=[0.30,0.24,0.20];
+  const WOOD2=[0.42,0.33,0.23],IRON=[0.34,0.37,0.44];
+  /* 绝对高度摆放：渊下宫的地台本身就是刻度，东西按台面高摆 */
+  const at=function(geo,cc,lx,yy,lz,sx,sy,sz,rx,ry,rz){
+    const m=makeMesh(geo,cc);
+    m.setPos(lx,yy,lz).setScale(sx,sy,sz);
+    if(rx||ry||rz)m.setRot(rx||0,ry||0,rz||0);
+    root.add(m);return m;
+  };
+  const put=function(geo,cc,lx,lz,sx,sy,sz,dy,rx,ry,rz){
+    return at(geo,cc,lx,enkRaw(ENK[0]+lx,ENK[1]+lz)+(dy||0),lz,sx,sy,sz,rx,ry,rz);
+  };
+  const liveAt=function(geo,cc,lx,yy,lz,sx,sy,sz,alpha,emis,glow){
+    const m=makeMesh(geo,cc,alpha===undefined?1:alpha);
+    m.setPos(ENK[0]+lx,yy,ENK[1]+lz).setScale(sx,sy,sz);
+    if(emis)m.emissive=emis;
+    if(glow)m.glow=1;
+    live.add(m);return m;
+  };
+  /* 局部坐标的地面高：ENK_DECKS 会把祭坛/看台那几片抬起来，
+     凡是按"台面 + 偏移"摆的 live 件与碰撞柱都必须走这里，不能吃 p.y。 */
+  const gY=function(lx,lz){return enkRaw(ENK[0]+lx,ENK[1]+lz);};
+  /* ---- 七块地台：一块厚圆盘 + 一圈蓝白沿石 + 沿口一道发光的水线 ---- */
+  for(let i=0;i<ENK_PLATS.length;i++){
+    const p=ENK_PLATS[i];
+    at(GEO.cylinder,DECK,p.dx,p.y-2.4,p.dz,p.r,4.8,p.r,0,0,0);
+    at(GEO.cylinder,DECK2,p.dx,p.y-6.4,p.dz,p.r*0.81,3.4,p.r*0.81,0,0,0);
+    at(GEO.cylinder,ROCK,p.dx,p.y-11,p.dz,p.r*0.55,6.4,p.r*0.55,0,0,0);
+    at(geoRing(p.r-2.6,p.r,72),RIM,p.dx,p.y+0.06,p.dz,1,1,1,0,0,0);
+    /* 沿口的水线平铺在台边上：GEO.ring 默认就在 XZ 面里，不要再 rx 立起来 */
+    liveAt(geoRing(p.r-1.3,p.r+0.2,72),CYAN,p.dx,p.y+0.12,p.dz,1,1,1,0.5,0.7,1);
+    /* 地台本身就是 terrainHeight 发言的地方，不需要再登记成碰撞柱：
+       整块圆盘当柱子的话，镜头与推拉都会把它当成一堵实心墙。 */
+    /* 台面上的青白石板纹路：八块错开的浅方台，走起来有层次 */
+    for(let k=0;k<8;k++){
+      const a=k/8*TAU+i*0.4,r=p.r*0.52;
+      put(GEO.box,k%2?WHT2:DECK2,p.dx+Math.cos(a)*r,p.dz+Math.sin(a)*r,
+        rnd(5,9),0.34,rnd(5,9),0.17,0,a,0);
+    }
+    /* 台壁上的三角母题：一圈倒悬的金色尖角。从邻台或桥上看过来，
+       "这是被人砌出来的岛"这件事就靠这一排角讲清楚。 */
+    for(let k=0;k<16;k++){
+      const a=k/16*TAU;
+      at(GEO.cone,GOLD,p.dx+Math.cos(a)*(p.r+0.05),p.y-2.9,p.dz+Math.sin(a)*(p.r+0.05),
+        1.3,2.4,1.3,Math.PI,0,0);
+    }
+    /* 沿口八盏灯柱：灯头是合批件——emissive 现在能跟着顶点色一起烘住，
+       不必再挂 live 节点白花一次 draw。 */
+    for(let k=0;k<8;k++){
+      const a=(k+0.5)/8*TAU,lx=p.dx+Math.cos(a)*(p.r-4.6),lz=p.dz+Math.sin(a)*(p.r-4.6);
+      put(GEO.cylinder,WHT2,lx,lz,0.26,4.4,0.26,2.2);
+      put(GEO.box,GOLD,lx,lz,0.92,0.26,0.92,4.46,0,a,0);
+      put(GEO.hem,DOM,lx,lz,1.0,0.5,1.0,4.86,0,a,0);
+      const hd=put(GEO.sphere8,CYAN,lx,lz,0.42,0.5,0.42,5.42);
+      hd.emissive=1.35;
+      addCol(ENK[0]+lx,ENK[1]+lz,0.34,gY(lx,lz)+4.4);
+    }
+    /* 台面镶嵌：两道金线加一枚中央三角，站在台上也不是一块纯色地板。
+       全部只抬 0.07~0.3 米，既不会 z-fighting 也不会挡路。 */
+    at(geoRing(p.r*0.74,p.r*0.79,64),GOLD,p.dx,p.y+0.08,p.dz,1,1,1,0,0,0);
+    at(geoRing(p.r*0.40,p.r*0.45,52),WHT2,p.dx,p.y+0.09,p.dz,1,1,1,0,0,0);
+    put(GEO.cone,GOLD,p.dx,p.dz,8.4,0.34,8.4,0.17,0,Math.PI/8,0);
+    for(let k=0;k<6;k++){
+      const a=k/6*TAU+i*0.3;
+      put(GEO.box,WHT2,p.dx+Math.cos(a)*p.r*0.58,p.dz+Math.sin(a)*p.r*0.58,
+        2.6,0.2,1.1,0.1,0,a,0);
+    }
+  }
+  /* ---- 第二级地面：一圈圈台阶。建模读 ENK_DECKS，terrainHeight 也读它，
+         所以台阶顶面正好等于脚底支撑，不会出现"看着能上、踩下去是空的"。 ---- */
+  for(let i=0;i<ENK_DECKS.length;i++){
+    const d=ENK_DECKS[i];
+    at(GEO.cylinder,DECK2,d.dx,d.y-0.5,d.dz,d.r,1.0,d.r,0,0,0);
+    at(geoRing(Math.max(0.5,d.r-0.9),d.r,56),GOLD,d.dx,d.y+0.07,d.dz,1,1,1,0,0,0);
+  }
+  /* ---- 栈桥：按坡道参数一段段铺。每块板子的板顶只保证"不低于解析桥面"，
+         板厚做到 2.4 米当裙板，段与段上下互相叠住，所以永远不会出现
+         "看着是路、踩下去悬空"或者脚陷进木板里的情况。 ---- */
+  for(const w of ENK_WAYS){
+    /* rotY(θ) 把局部 Z 映到 (sinθ, cosθ)，所以要让板子的长边(局部 Z)顺着走的方向，
+       θ 必须等于 atan2(ux,uz) 本身；取负号会把它镜像成另一条对角线。 */
+    const a=Math.atan2(w.ux,w.uz);
+    const from=w.tA*w.L,to=w.tB*w.L,span=Math.max(6,to-from);
+    const N=Math.max(8,Math.ceil(span/3),Math.ceil(Math.abs(w.y1-w.y0)/0.5));
+    for(let k=0;k<N;k++){
+      const t0=(from+span*k/N)/w.L,t1=(from+span*(k+1)/N)/w.L,tm=(t0+t1)*0.5;
+      const ym=(enkWayY(w,t0)+enkWayY(w,t1))*0.5;
+      const seg=(span/N)*1.04;
+      const cx=w.ax+w.ux*tm*w.L,cz=w.az+w.uz*tm*w.L;
+      at(GEO.box,WOOD,cx,ym-0.9,cz,9.0,2.4,seg,0,a,0);
+      for(const s of[-1,1])
+        at(GEO.box,RIM,cx-w.uz*s*4.3,ym+0.8,cz+w.ux*s*4.3,0.4,1.1,seg,0,a,0);
+    }
+    /* 桥头一对灯柱：黑漆漆的海渊上找路，先看灯再看桥 */
+    for(const t of[w.tA+0.015,w.tB-0.015])for(const s of[-1,1]){
+      const bx=w.ax+w.ux*t*w.L-w.uz*s*5.6,bz=w.az+w.uz*t*w.L+w.ux*s*5.6;
+      const by=enkRaw(ENK[0]+bx,ENK[1]+bz);
+      if(by<=ENK_VOID+1)continue;
+      at(GEO.cylinder,WHT2,bx,by+2.1,bz,0.22,4.2,0.22,0,a,0);
+      const bl=at(GEO.sphere8,CYAN,bx,by+4.6,bz,0.36,0.44,0.36,0,a,0);
+      bl.emissive=1.4;
+      addCol(ENK[0]+bx,ENK[1]+bz,0.3,by+4.2);
+    }
+  }
+  /* ---- 海渊里的东西：残柱、断阶与垂链 ----
+     虚空如果什么都不放，回头看就是一张黑幕；把几根从渊底立起来的残柱摆在
+     可走范围之外（人过不去，纯做纵深），这片"海"才像还在下面。 */
+  for(let i=0;i<9;i++){
+    const a=i/9*TAU+0.32,r=ENK_R+34+((i*37)%46);
+    const sx=Math.cos(a)*r,sz=Math.sin(a)*r;
+    const hh=rnd(38,86),top=-30+hh;
+    at(GEO.cylinder,ROCK,sx,-30+hh*0.5,sz,rnd(7,13),hh,rnd(7,13),0,a,0);
+    at(GEO.cylinder,DECK2,sx,top+0.5,sz,rnd(9,15),1.2,rnd(9,15),0,a+0.4,0);
+    /* 柱顶那点灯是"这里也曾有人来过"，不用亮，只要看得懂 */
+    if(i%3===0){
+      const gl=at(GEO.sphere8,CYAN,sx,top+2.2,sz,0.7,0.9,0.7,0,a,0);
+      gl.emissive=1.2;
+    }
+    for(const s of[-1,1])
+      at(geoRing(rnd(8,12),rnd(13,18),20),ROCK,sx,top-rnd(6,26),sz,1,1,1,0,a,0);
+  }
+  /* 每块地台底下垂几条锈链，末端挂个坠子：抬眼是岛，低头是渊 */
+  for(let pi=0;pi<ENK_PLATS.length;pi++){
+    const p=ENK_PLATS[pi];
+    for(let k=0;k<4;k++){
+      const a=(k/4+pi*0.11)*TAU,r=p.r*0.62;
+      const cx=p.dx+Math.cos(a)*r,cz=p.dz+Math.sin(a)*r,len=rnd(14,30);
+      at(GEO.cylinder,[0.22,0.24,0.30],cx,p.y-5.0-len*0.5,cz,0.16,len,0.16,0,a,0);
+      at(GEO.box,[0.26,0.28,0.34],cx,p.y-5.4-len,cz,0.9,1.3,0.9,0,a,0);
+    }
+  }
+  /* ---- 狭间之街：蓝顶白墙的立方民居，一条街排开 ---- */
+  const sp=ENK_PLATS[0];
+  for(let i=0;i<9;i++){
+    const a=-0.9+i*0.22,r=34+((i*13)%16);
+    const px=sp.dx+Math.cos(a)*r,pz=sp.dz+Math.sin(a)*r;
+    const hh=rnd(4.6,8.2),ww=rnd(5.4,8.4);
+    put(GEO.box,WHT,px,pz,ww,hh,ww*0.86,hh/2+0.2,0,a,0);
+    put(GEO.box,WHT2,px,pz,ww*1.06,0.5,ww*0.92,hh+0.45,0,a,0);
+    put(GEO.hem,DOM,px,pz,ww*0.72,ww*0.34,ww*0.62,hh+0.7,0,a,0);
+    put(GEO.box,GOLD,px,pz,ww*0.16,0.9,ww*0.16,hh+1.1,0,a,0);
+    addCol(ENK[0]+px,ENK[1]+pz,ww*0.5,gY(px,pz)+hh+0.7);
+    /* 门前的三角灯：渊下宫的母题就是等边三角形 */
+    const gx=px-Math.cos(a)*(ww*0.5+1.4),gz=pz-Math.sin(a)*(ww*0.5+1.4);
+    put(GEO.cone,GOLD,gx,gz,1.5,1.3,1.5,0.7,Math.PI,0,0);
+    liveAt(GEO.sphere8,CYAN,gx,gY(gx,gz)+0.9,gz,0.30,0.30,0.30,0.9,1.15,0);
+  }
+  /* 街的第二排：一条会住人的街不能只有临街那面。放在背向祭道的西半圈，
+     免得和南口的台阶、东排房子叠在一起。 */
+  for(let i=0;i<7;i++){
+    const a=Math.PI*0.60+i*0.22,r=13+((i*7)%9);
+    const px=sp.dx+Math.cos(a)*r,pz=sp.dz+Math.sin(a)*r;
+    const hh=rnd(3.6,6.2),ww=rnd(4.2,6.6);
+    put(GEO.box,WHT,px,pz,ww,hh,ww*0.9,hh/2+0.2,0,a+0.3,0);
+    put(GEO.hem,DOM,px,pz,ww*0.7,ww*0.3,ww*0.62,hh+0.55,0,a+0.3,0);
+    put(GEO.box,GOLD,px,pz,ww*0.14,0.7,ww*0.14,hh+0.9,0,a+0.3,0);
+    addCol(ENK[0]+px,ENK[1]+pz,ww*0.5,gY(px,pz)+hh+0.6);
+  }
+  /* 一排摊子：四脚棚 + 货柜 + 一筐海货，街上得有点过日子的东西 */
+  for(let i=0;i<5;i++){
+    const a=-0.6+i*0.38,r=22+((i*11)%6);
+    const px=sp.dx+Math.cos(a)*r,pz=sp.dz+Math.sin(a)*r;
+    for(const s of[-1,1])for(const q of[-1,1])
+      put(GEO.cylinder,WOOD,px+s*1.7,pz+q*1.3,0.11,2.6,0.11,1.3);
+    put(GEO.box,[0.34,0.52,0.68],px,pz,4.2,0.22,3.4,2.7,0,a,0);
+    put(GEO.box,WOOD2,px-Math.sin(a)*1.0,pz+Math.cos(a)*1.0,2.6,0.9,1.3,0.65,0,Math.PI/2-a,0);
+    const fish=put(GEO.sphere8,CORAL,px+Math.cos(a)*0.6,pz+Math.sin(a)*0.6,0.7,0.4,0.5,2.95,a);
+    addCol(ENK[0]+px,ENK[1]+pz,1.5,gY(px,pz)+2.7);
+  }
+  /* ---- 月门祭道：五道金环月门，越往里越高 ---- */
+  const mp=ENK_PLATS[1];
+  for(let i=0;i<5;i++){
+    const t=i/4;
+    const px=mp.dx+(-1+t*2)*mp.r*0.62,pz=mp.dz+(t-0.5)*14;
+    for(const s of[-1,1]){
+      put(GEO.cylinder,WHT2,px+s*6.6,pz,1.1,7.2,1.1,3.6);
+      addCol(ENK[0]+px+s*6.6,ENK[1]+pz,1.1,mp.y+7.2);
+    }
+    /* 门环是立着的一道圆：GEO.ring 本在 XZ 面，rx 才把它竖起来。
+       liveAt 的高度是绝对海拔，所以要在地台台面之上再加。 */
+    const rg=liveAt(GEO.ring,GOLD,px,mp.y+7.4,pz,5.2,1,5.2,0.85,1.1,1);
+    rg.rx=Math.PI/2-0.12;
+    put(GEO.box,GOLD,px,pz,15.4,0.5,1.4,6.95,0,0,0);
+  }
+  /* ---- 大日御舆：人造太阳。三级塔基 + 金环日轮 + 一圈悬浮光羽 ---- */
+  const tp=ENK_PLATS[2];
+  for(let i=0;i<3;i++){
+    const rr=22-i*5.4,hh=8+i*7;
+    put(GEO.cylinder,i%2?WHT2:WHT,tp.dx,tp.dz,rr,hh,rr,hh/2+0.2);
+    put(geoRing(rr-1.2,rr,48),GOLD,tp.dx,tp.dz,1,1,1,hh+0.3);
+    addCol(ENK[0]+tp.dx,ENK[1]+tp.dz,rr,tp.y+hh+0.2);
+  }
+  /* 人造太阳悬在三级塔基的正上方：最高一层台面在 tp.y+22.2，日轮中心再抬十米 */
+  const sunY=tp.y+32;
+  const sun=liveAt(GEO.sphere8,[1.0,0.94,0.66],tp.dx,sunY,tp.dz,5.6,5.6,5.6,0.92,2.4,1);
+  const ring=liveAt(GEO.ring,GOLD,tp.dx,sunY,tp.dz,10.4,1,10.4,0.8,1.5,1);
+  ring.rx=Math.PI/2;
+  const ring2=liveAt(GEO.ring,CYAN,tp.dx,sunY,tp.dz,13.2,1,13.2,0.6,1.2,1);
+  ring2.rx=1.15;ring2.rz=0.4;
+  enkSpin.push({m:ring,sp:0.22},{m:ring2,sp:-0.34},{m:sun,sp:0});
+  /* 日轮外圈八片悬浮光羽：整组挂在同一个节点上转，
+     单独转八片会把"绕着太阳转"这件事转没了。 */
+  {
+    const sunG=new Node();
+    sunG.setPos(ENK[0]+tp.dx,sunY,ENK[1]+tp.dz);
+    live.add(sunG);
+    for(let i=0;i<8;i++){
+      const a=i/8*TAU;
+      const f=makeMesh(GEO.box,GOLD,0.85);
+      f.setPos(Math.cos(a)*13.5,Math.sin(a*2)*1.1,Math.sin(a)*13.5).setScale(0.8,4.6,2.2);
+      f.ry=-a;f.rz=0.42;f.emissive=1.2;
+      sunG.add(f);
+    }
+    enkSpin.push({m:sunG,sp:0.17});
+  }
+  for(let i=0;i<4;i++){
+    const a=i/4*TAU+0.4;
+    put(GEO.cone,GOLD,tp.dx+Math.cos(a)*27,tp.dz+Math.sin(a)*27,
+      2.2,12,2.2,6.4,Math.sin(a)*0.16,-a,Math.cos(a)*0.16);
+  }
+  /* ---- 常世宫：一整面带柱廊的宫殿，前面一汪发光的水 ---- */
+  const gp=ENK_PLATS[3];
+  put(GEO.box,WHT,gp.dx,gp.dz-12,52,15,20,7.7,0,0,0);
+  put(GEO.box,WHT2,gp.dx,gp.dz-12,54,1.2,22,15.85,0,0,0);
+  /* GEO.hem 是 geoCylinder(0.55,1,1)：sx/sz 是"底半径"，顶半径自动是它的 0.55 倍 */
+  put(GEO.hem,DOM,gp.dx,gp.dz-12,20,7,10,15.9,0,0,0);
+  for(let i=-4;i<=4;i++){
+    put(GEO.cylinder,WHT,gp.dx+i*5.6,gp.dz+2.4,1.5,13,1.5,6.5);
+    addCol(ENK[0]+gp.dx+i*5.6,ENK[1]+gp.dz+2.4,1.5,gp.y+13);
+  }
+  for(let i=-3;i<=3;i++)
+    put(GEO.box,GOLD,gp.dx+i*7,gp.dz+2.4,1.2,0.5,1.2,13.2);
+  put(GEO.cylinder,DECK2,gp.dx,gp.dz+16,24,0.6,14,0.1);
+  liveAt(GEO.disc,CYAN,gp.dx,gp.y+0.45,gp.dz+16,22,1,12,0.55,0.9,1);
+  /* 宫殿本体登记成四根粗柱：一整块 26 米半径的圆盘会把前面的柱廊与水池都封死 */
+  for(const ox of[-19.5,-6.5,6.5,19.5])
+    addCol(ENK[0]+gp.dx+ox,ENK[1]+gp.dz-12,9.4,gp.y+15.2);
+  /* ---- 望舒台 / 无相之原：一座亭子与四道石拱 ---- */
+  const wp=ENK_PLATS[4];
+  for(const s of[-1,1])for(const q of[-1,1]){
+    put(GEO.cylinder,WHT2,wp.dx+s*6,wp.dz+q*6,0.9,6.4,0.9,3.2);
+    addCol(ENK[0]+wp.dx+s*6,ENK[1]+wp.dz+q*6,0.9,wp.y+6.4);
+  }
+  put(GEO.hem,DOM,wp.dx,wp.dz,10.4,4.2,10.4,6.9,0,0,0);
+  put(GEO.box,GOLD,wp.dx,wp.dz,2.2,1.2,2.2,9.55);
+  const np=ENK_PLATS[5];
+  for(let i=0;i<4;i++){
+    const a=i/4*TAU+0.35,r=np.r*0.62;
+    const px=np.dx+Math.cos(a)*r,pz=np.dz+Math.sin(a)*r;
+    for(const s of[-1,1])
+      put(GEO.box,WHT2,px-Math.sin(a)*4.4*s,pz+Math.cos(a)*4.4*s,3.2,9,3.2,4.5,0,a,0);
+    /* 横梁的长边要沿着两根立柱的连线：rotY 把局部 X 映到 (cosθ,−sinθ)，
+       而切向是 (−sin a, cos a)，所以取 θ=π/2−a；直接用 a 会拧掉 90°。 */
+    put(GEO.box,GOLD,px,pz,12.4,1.1,1.1,9.4,0,Math.PI/2-a,0);
+    for(const s of[-1,1])
+      addCol(ENK[0]+px-Math.sin(a)*4.4*s,ENK[1]+pz+Math.cos(a)*4.4*s,1.9,np.y+9);
+  }
+  /* ---- 常夜之渊：跋掣的场子，一圈断柱加一汪黑水 ---- */
+  const bp=ENK_PLATS[6];
+  for(let i=0;i<10;i++){
+    const a=i/10*TAU,r=ENK_ARENA_R-7;
+    const hh=rnd(5,12);
+    put(GEO.cylinder,WHT2,bp.dx+Math.cos(a)*r,bp.dz+Math.sin(a)*r,
+      2.0,hh,2.0,hh/2+0.2,0,a,0);
+    put(GEO.box,ROCK,bp.dx+Math.cos(a)*r,bp.dz+Math.sin(a)*r,
+      4.2,0.9,4.2,hh+0.6,0,a,0);
+  }
+  liveAt(GEO.disc,[0.10,0.16,0.28],bp.dx,gY(bp.dx,bp.dz)+0.16,bp.dz,17,1,17,0.9,0.2,0);
+  for(let i=0;i<4;i++){
+    const a=i/4*TAU+0.7,r=ENK_ARENA_R-2;
+    liveAt(GEO.sphere8,CORAL,bp.dx+Math.cos(a)*r,gY(bp.dx,bp.dz)+1.9,bp.dz+Math.sin(a)*r,
+      0.85,1.25,0.85,0.9,1.15,0);
+  }
+  /* ---- 会发光的海底植物：这一区的"灯"，也是唯一的暖色之外 ---- */
+  for(let i=0;i<ENK_PLATS.length;i++){
+    const p=ENK_PLATS[i];
+    for(let k=0;k<7;k++){
+      const a=Math.random()*TAU,r=Math.random()*p.r*0.78;
+      const px=p.dx+Math.cos(a)*r,pz=p.dz+Math.sin(a)*r;
+      const sh=rnd(2.6,4.6);
+      put(GEO.cylinder,CORAL,px,pz,0.22,sh,0.22,sh/2+0.1);
+      /* 灯珠必须长在同一根茎的顶上：两个随机数各掷一次，会飘出一堆悬空光球 */
+      liveAt(GEO.sphere8,i%2?CYAN:CORAL,px,p.y+sh+0.42,pz,
+        0.36,0.5,0.36,0.85,1.2,0);
+    }
+  }
+  /* ---- 南口：从海渊里浮上来的祭坛与回程月门 ----
+     台阶本身已经由 ENK_DECKS 发言（解析式与建模同源），这里只往上面摆东西。 */
+  const ep=ENK_SPAWN[0]-ENK[0],ezp=ENK_SPAWN[1]-ENK[1];
+  const gy0=enkRaw(ENK[0]+ep,ENK[1]+ezp+8);
+  for(const s of[-1,1]){
+    put(GEO.cylinder,WHT,ep+s*9,ezp+8,1.6,10,1.6,5);
+    put(GEO.box,GOLD,ep+s*9,ezp+8,3.4,0.5,3.4,10.2,0,0,0);
+    const cap=put(GEO.cone,DOM,ep+s*9,ezp+8,1.5,2.0,1.5,11.4);
+    addCol(ENK[0]+ep+s*9,ENK[1]+ezp+8,1.6,gy0+10);
+  }
+  const gate=liveAt(GEO.ring,GOLD,ep,gy0+10.6,ezp+8,7.4,1,7.4,0.85,1.3,1);
+  gate.rx=Math.PI/2;
+  enkSpin.push({m:gate,sp:0.4});
+  /* 坛心：供桌 + 一对火盆 + 一面刻着三角母题的碑 */
+  put(GEO.box,WOOD2,ep,ezp+34,7.2,0.5,3.2,3.9,0,0,0);
+  for(const s of[-1,1]){
+    put(GEO.cylinder,IRON,ep+s*5.4,ezp+30,1.1,1.5,1.1,0.75);
+    const fi=put(GEO.sphere8,[1.0,0.72,0.32],ep+s*5.4,ezp+30,1.0,0.8,1.0,2.5);
+    fi.emissive=1.6;
+  }
+  put(GEO.box,WHT,ep,ezp+40,13,9,1.6,4.5,0,0,0.05);
+  put(GEO.box,GOLD,ep,ezp+40,13,0.7,2.2,13.9,0,0,0.05);
+  for(let k=0;k<3;k++)
+    put(GEO.cone,GOLD,ep-4+k*4,ezp+39.0,1.9,1.7,1.9,5.2+((k===1)?1.4:0));
+  const rp=ENK_RET[0]-ENK[0],rzp=ENK_RET[1]-ENK[1];
+  for(const s of[-1,1])
+    put(GEO.cylinder,WHT2,rp+s*4.4,rzp,1.0,7.6,1.0,3.8);
+  const back=liveAt(GEO.ring,CYAN,rp,8.2,rzp,4.4,1,4.4,0.8,1.4,1);
+  back.rx=Math.PI/2;
+  enkSpin.push({m:back,sp:-0.5});
 })();
 mergeProps();
 const BUILDING_COLS=cityCols;   // 建筑碰撞与可攀爬面同一份数据
@@ -13246,6 +14125,10 @@ function fxSlashArc(origin,yaw,pitch,rgb,radius,life){
     }});
   return it;
 }
+/* 游戏里的 yaw 一律是"前向 = (−sin yaw, −cos yaw)"（mountFwd / aimDir 都这套），
+   而 fxSlashArc 内部按 (sin yaw, cos yaw) 展开刀光，两者差 180°：凡是把 camYaw 或
+   e.yaw 直接喂给它的调用点，刀光就永远扫向角色身后。统一过这道换算。 */
+function fxYawOf(y){return y+Math.PI;}
 /* 命中：一小簇火花 + 星芒 + 细环，比原来六颗小球点更"扎" */
 function fxHitSpark(pos,rgb){
   const it=fxItem({kind:6,a:1,r:1,g:1,b:1,life:0.2,x:pos[0],y:pos[1],z:pos[2],
@@ -13438,14 +14321,23 @@ function sfxStep(dt){
   sh[3]=bestA*(sfTmp[2]?1:0.3);
 }
 /* 一次完整的打击反馈：顿帧 + 抖屏 + 星芒 + 细环 + 屏幕冲击波，由命中处调用 */
-let fxStopT=0,fxShakeT=0,fxShakeA=0;
+let fxStopT=0,fxShakeT=0,fxShakeA=0,fxStopCool=0;
+/* 顿帧与抖屏都必须限流：普攻一串伤害每段都重置 fxStopT 的话，世界就一直跑在 2%
+   速度上——那不是打击感，是"卡了"。抖屏同理，幅度大又每段都抖就像掉帧。 */
+function fxStop(v){
+  if(fxStopCool>0)return;
+  fxStopT=Math.max(fxStopT,v);fxStopCool=0.20;
+}
+function fxShake(t,a){
+  fxShakeT=Math.max(fxShakeT,t);fxShakeA=Math.max(fxShakeA,a);
+}
 function fxImpact(pos,rgb,strong){
   fxHitSpark(pos,rgb);
   if(strong){
-    fxStopT=0.075;fxShakeT=0.22;fxShakeA=0.09;
+    fxStop(0.04);fxShake(0.09,0.030);
     sfxShock(pos,0.5,4.8,0.32,1);sfxChroma(0.24,0.7);sfxGrain(0.3,0.5);
   }else{
-    fxStopT=Math.max(fxStopT,0.035);fxShakeT=Math.max(fxShakeT,0.12);fxShakeA=Math.max(fxShakeA,0.045);
+    fxStop(0.018);fxShake(0.05,0.014);
     sfxShock(pos,0.4,2.6,0.24,0.45);
   }
 }
@@ -14452,7 +15344,35 @@ const ENEMY_TYPES={
             rgb:[1.00,0.72,0.18],element:'pyro',exp:240,qiu:1,qiuKind:'king'},
   qiu_dawang:{name:'丘丘大王',title:'丘丘现代城 · 市政厅',
               hp:168000,atk:430,speed:3.1,radius:3.2,rgb:[0.90,0.70,0.28],
-              element:'electro',exp:1800,boss:true,hpBig:true,qiu:1,qiuKind:'dawang'}
+              element:'electro',exp:1800,boss:true,hpBig:true,qiu:1,qiuKind:'dawang'},
+  /* ---- 层岩巨渊 · 地下矿区：被黑泥泡过的东西，颜色都是紫黑一档 ----
+     模型沿用既有的丘丘人/史莱姆/龙蜥分支（只换 rgb 与体格），
+     牵引与台面交给通用 AI，所以这里不带 qiu 标记。 */
+  chsm_hili:{name:'黑泥丘丘人',hp:860,atk:132,speed:3.2,radius:0.56,
+             rgb:[0.34,0.19,0.44],element:'dendro',exp:40},
+  chsm_grunt:{name:'矿洞丘丘暴徒',hp:2400,atk:196,speed:2.7,radius:0.86,
+              rgb:[0.28,0.20,0.40],element:'geo',exp:96},
+  slime_mud:{name:'溟泥史莱姆',hp:700,atk:108,speed:2.3,radius:0.62,
+             rgb:[0.46,0.22,0.58],element:'dendro',exp:32},
+  chsm_lizard:{name:'蛇蜥幼体',hp:3100,atk:224,speed:3.4,radius:0.92,
+               rgb:[0.26,0.50,0.44],element:'geo',exp:128},
+  chsm_elite:{name:'淤泥监工·黑泥强化',hp:5200,atk:286,speed:2.9,radius:1.08,
+              rgb:[0.62,0.26,0.74],element:'electro',exp:168},
+  chsm_lord:{name:'溟泥之主',title:'层岩巨渊 · 大石厅',hp:96000,atk:398,speed:2.6,
+             radius:3.4,rgb:[0.30,0.14,0.40],element:'dendro',exp:1500,
+             boss:true,hpBig:true},
+  /* ---- 渊下宫：海渊里的原住民，配色一律往青蓝压 ---- */
+  enk_lizard:{name:'深海龙蜥',hp:3400,atk:238,speed:3.3,radius:0.94,
+              rgb:[0.24,0.52,0.72],element:'hydro',exp:132},
+  slime_abyss:{name:'常世水史莱姆',hp:820,atk:118,speed:2.4,radius:0.64,
+               rgb:[0.30,0.66,0.88],element:'hydro',exp:34},
+  enk_hunter:{name:'渊侍弓手',hp:1180,atk:172,speed:3.0,radius:0.58,
+              rgb:[0.20,0.34,0.52],element:'hydro',exp:66},
+  enk_guard:{name:'常夜遗迹哨卫',hp:6200,atk:302,speed:2.6,radius:1.12,
+             rgb:[0.42,0.62,0.70],element:'electro',exp:186},
+  enk_lord:{name:'跋掣',title:'渊下宫 · 常夜之渊',hp:112000,atk:424,speed:3.0,
+            radius:3.6,rgb:[0.24,0.52,0.74],element:'hydro',exp:1600,
+            boss:true,hpBig:true}
 };
 /* 世界boss / 周本boss 统一注册：名录在 WB_BOSSES 里，这里把整条数据挂成 wb，
    索敌、受击、尸体清理与小地图沿用普通敌人那一套，模型与 AI 走 wb 分支。 */
@@ -15355,7 +16275,7 @@ function qiuBossAI(e,dt){
       const ya=Math.atan2(tz-e.pos[2],tx-e.pos[0]);
       fxSlashArc([e.pos[0],e.pos[1]+1.5,e.pos[2]],ya+Math.PI,0.2,[1.0,0.32,0.8],R*1.5,0.3);
       const hit=qiuHurt(e,tx,tz,R,last?0.95:0.55);
-      if(hit&&last)fxStopT=Math.max(fxStopT,0.05);
+      if(hit&&last)fxStop(0.028);
       e.aiN++;
       if(e.aiN>=e.aiA){e.aiS='recover';e.aiT=0.8/fast;}
       else e.aiT=0.38/fast;
@@ -15566,6 +16486,679 @@ function registerQiuCity(){
     const pl=QIU_PLAZAS[i];
     makeChest(pl.x+Math.cos(pl.ang+2.2)*pl.r*0.8,pl.z+Math.sin(pl.ang+2.2)*pl.r*0.8);
   }
+}
+/* 光照与黑泥：这一带的"天气"不是雾，而是你手里那盏灯够不够亮。
+   光源表 CHSM_LIGHTS 在建模时就登记好了，这里每帧只查最近的一两个。 */
+function chsmLumenMax(){return Math.min(LUMEN_CAP,LUMEN_CAP0+Math.floor(chsmCryst/8));}
+function chsmLightAt(x,z){
+  let best=0;
+  for(let i=0;i<CHSM_LIGHTS.length;i++){
+    const L=CHSM_LIGHTS[i],d=Math.hypot(x-L.x,z-L.z);
+    if(d>=L.r)continue;
+    const v=(1-d/L.r)*(L.p||1);
+    if(v>best)best=v;
+  }
+  return best;
+}
+/* 站在黑泥里：官方是"持续掉血 + 无法回体力"，本作落地为每秒一跳伤害 + 减速 */
+function chsmMudAt(x,z){
+  for(const v of chsmVents){
+    if(v.dead)continue;
+    if(Math.hypot(x-v.x,z-v.z)<v.r-1.2)return v;
+  }
+  return null;
+}
+function chsmVentNear(){
+  const x=player.pos[0],z=player.pos[2];
+  for(const v of chsmVents){
+    if(!v.dead&&Math.hypot(x-v.x,z-v.z)<v.r+6)return v;
+  }
+  return null;
+}
+/* 纯光绽放：花 1 格光值把一座淤泥涌口烧掉，泥沼随之失效 */
+function chsmBloom(){
+  const v=chsmVentNear();
+  if(!v)return false;
+  if(player.lumen<1){
+    toast('光值不足：先在流明晶或灯火旁边把触媒充起来（当前 '+
+      player.lumen.toFixed(1)+' / '+chsmLumenMax()+'）');
+    return true;
+  }
+  player.lumen-=1;v.dead=true;
+  fxRing([v.x,v.y+0.2,v.z],LUMEN_CY,v.r*2.2,0.8);
+  fxSphere([v.x,v.y+1.4,v.z],LUMEN_W,4.2,0.5,0.85);
+  fxParticles([v.x,v.y+1.0,v.z],[0.86,0.98,1.0],v.r*0.8,22,0.9,true);
+  if(v.g)v.g.visible=false;
+  if(v.core)v.core.visible=false;
+  toast('纯光绽放：淤泥涌口被烧穿了，这片黑泥不再伤人');
+  return true;
+}
+/* 黑暗遮罩：一层径向渐暗的黑幕，中心留一小圈可视。
+   光值越高圈越大、边缘越浅；烧干之后就剩鼻尖那么一点亮。 */
+let lumenMask=null;
+function lumenMaskSet(v){
+  if(!lumenMask){
+    lumenMask=document.createElement('div');
+    lumenMask.id='lumenMask';
+    lumenMask.style.cssText='position:absolute;left:0;top:0;right:0;bottom:0;'+
+      'pointer-events:none;opacity:0;transition:opacity .22s;'+
+      'background:radial-gradient(circle at 50% 52%,rgba(0,0,0,0) 10%,'+
+      'rgba(2,3,8,.82) 46%,rgba(1,2,6,.97) 82%)';
+    const ui=document.getElementById('ui');
+    if(ui)ui.appendChild(lumenMask);
+  }
+  if(!lumenMask)return;
+  lumenMask.style.opacity=v.toFixed(3);
+  lumenMask.style.display=v<=0.001?'none':'block';
+}
+/* 光值读数：只在地下矿区出现，挂在屏幕上方正中，免得玩家不知道自己还剩几格 */
+let lumenHud=null;
+function lumenHudSet(txt){
+  if(!lumenHud){
+    lumenHud=document.createElement('div');
+    lumenHud.id='lumenHud';
+    lumenHud.style.cssText='position:absolute;left:50%;top:11%;transform:translateX(-50%);'+
+      'padding:5px 13px;border-radius:14px;pointer-events:none;display:none;'+
+      'font-size:13px;letter-spacing:.5px;color:#cdeefb;'+
+      'background:rgba(8,14,24,.62);border:1px solid rgba(120,200,235,.42)';
+    const ui=document.getElementById('ui');
+    if(ui)ui.appendChild(lumenHud);
+  }
+  if(!lumenHud)return;
+  if(!txt){lumenHud.style.display='none';return;}
+  lumenHud.textContent=txt;
+  lumenHud.style.display='block';
+}
+function updateChasmUnder(dt){
+  const near=chsmDist(player.pos[0],player.pos[2])<CHSM_R+140;
+  if(near){
+    for(let i=0;i<chsmGems.length;i++){
+      const g=chsmGems[i];
+      if(!g||!g.visible)continue;
+      g.ry+=dt*0.9;
+      g.py=chsmGems[i]._y0===undefined?(chsmGems[i]._y0=g.py):g._y0+Math.sin(gameTime*1.7+i)*0.22;
+      g.emissive=1.55+Math.sin(gameTime*2.6+i*0.7)*0.3;
+    }
+    for(const v of chsmVents){
+      if(v.dead||!v.core)continue;
+      const b=Math.sin(gameTime*1.9+v.ph);
+      v.core.emissive=1.35+b*0.4;
+      v.core.py=v.y+1.5+b*0.22;
+      if(v.g)v.g.emissive=0.8+b*0.25;
+    }
+  }
+  for(let i=chsmEchoes.length-1;i>=0;i--){
+    const q=chsmEchoes[i];
+    q.t-=dt;
+    if(q.t>0)continue;
+    fxRing([q.x,q.y+0.14,q.z],MUD_V, q.r*2.1,0.5);
+    fxParticles([q.x,q.y+0.8,q.z],[0.62,0.28,0.72],q.r,12,0.6,true);
+    if(!player.dead&&Math.hypot(player.pos[0]-q.x,player.pos[2]-q.z)<q.r)
+      hurtPlayer(q.dmg,q.src);
+    chsmEchoes.splice(i,1);
+  }
+  if(chsmBossRespawnT>0){
+    chsmBossRespawnT-=dt;
+    if(chsmBossRespawnT<=0&&player.zone==='chasm')spawnChsmBoss();
+  }
+  if(player.zone!=='chasm'){
+    if(player.chsmDark){player.chsmDark=0;lumenMaskSet(0);lumenHudSet('');}
+    return;
+  }
+  if(!chsmBoss&&chsmBossRespawnT<=0)spawnChsmBoss();
+  chsmTopT-=dt;
+  if(chsmTopT<=0){
+    chsmTopT=22;
+    if(chsmMobCount()<20)chsmFillMobs(4);
+  }
+  /* 光值：靠近光源回充，待在黑暗里持续消耗；归零之后视野收成一圈，攻击也掉一档 */
+  const lit=chsmLightAt(player.pos[0],player.pos[2]);
+  const cap=chsmLumenMax();
+  if(lit>0.12)player.lumen=Math.min(cap,player.lumen+dt*0.75*lit);
+  else player.lumen=Math.max(0,player.lumen-dt*0.30);
+  /* 视野遮罩只压到五成半：底下要看得清路，灯灭了仍然明显收成一圈就够 */
+  player.chsmDark=clamp(1-lit*2.1-(player.lumen>0?0.62:0),0,1)*0.55;
+  lumenMaskSet(player.chsmDark);
+  lumenHudSet('流明石触媒 光值 '+player.lumen.toFixed(1)+' / '+chsmLumenMax()+
+    '　流明晶石 '+chsmCryst+' / '+CHSM_CRYSTALS.length+
+    (player.lumen<=0?'　灯灭了：攻击 -28%，找光源':''));
+  const mud=chsmMudAt(player.pos[0],player.pos[2]);
+  if(mud){
+    player.mudT=gameTime+0.4;
+    player.mudAcc=(player.mudAcc||0)+dt;
+    if(player.mudAcc>=1){
+      player.mudAcc=0;
+      hurtPlayer(Math.round(hpMaxOf(activeChar())*0.055+18),mud.src||chsmBoss||null);
+      fxParticles([player.pos[0],player.pos[1]+0.6,player.pos[2]],[0.52,0.22,0.62],1.4,8,0.5,true);
+    }
+  }else player.mudAcc=0;
+}
+/* 传送门、回程井架、大地图锚点与涌口交互：全部在 bootStep 里登记
+   （interactables / TELEPORTS 在建模那一批代码之后才声明）。 */
+function registerChasmUnder(){
+  TELEPORTS.push({id:'chsmhole',name:'层岩巨渊 · 坑底矿道口',
+    x:CHSM_HOLE[0],z:CHSM_HOLE[1],icon:'⛏',color:'#6fe0ff',zone:'field',lyTab:true});
+  TELEPORTS.push({id:'chsmmine',name:'层岩巨渊 · 地下矿区',
+    x:CHSM_SPAWN[0],z:CHSM_SPAWN[1],icon:'🔦',color:'#6fe0ff',zone:'chasm'});
+  TELEPORTS.push({id:'chsmhall',name:'层岩巨渊 · 大石厅',
+    x:CHSM_BOSS[0],z:CHSM_BOSS[1],icon:'👁',color:'#c07adf',zone:'chasm'});
+  interactables.push({x:CHSM_HOLE[0],z:CHSM_HOLE[1],radius:7.6,
+    label:'钻进坑底的矿道口 · 层岩巨渊·地下矿区',done:false,
+    action:function(){
+      doTeleport({x:CHSM_SPAWN[0],z:CHSM_SPAWN[1],zone:'chasm',name:'层岩巨渊 · 地下矿区'});
+    }});
+  interactables.push({x:CHSM_RET[0],z:CHSM_RET[1],radius:5.2,
+    label:'乘井架提升机返回巨坑之底',done:false,
+    action:function(){
+      doTeleport({x:CHSM_HOLE[0],z:CHSM_HOLE[1]-6,zone:'field',name:'层岩巨渊 · 巨坑底'});
+    }});
+  /* 每一座淤泥涌口都是一个"按 F 烧掉"的交互件 */
+  for(const v of chsmVents){
+    const it={x:v.x,z:v.z,radius:v.r+6,label:'纯光绽放 · 烧穿淤泥涌口（耗 1 格光值）',
+      done:false,action:function(){
+        if(chsmBloom()&&v.dead)it.done=true;
+        return v.dead;
+      }};
+    interactables.push(it);
+  }
+  /* 24 枚流明晶石：捡一枚少一枚，每 8 枚把触媒的光值上限抬一格 */
+  for(let i=0;i<CHSM_CRYSTALS.length;i++){
+    const c=CHSM_CRYSTALS[i];
+    const wx=CHSM[0]+c[0],wz=CHSM[1]+c[1];
+    const gi=i;
+    const it={x:wx,z:wz,radius:3.4,label:'拾取流明晶石',done:false,action:function(){
+      if(chsmGotGem[gi])return false;
+      chsmGotGem[gi]=1;chsmCryst++;
+      if(chsmGems[gi])chsmGems[gi].visible=false;
+      it.done=true;
+      const before=chsmLumenMax();
+      grantAdv(14,'流明晶石');
+      toast('拾得流明晶石 '+chsmCryst+' / '+CHSM_CRYSTALS.length+
+        '（触媒光值上限 '+before+' → '+chsmLumenMax()+'）');
+      return true;
+    }};
+    interactables.push(it);
+  }
+  for(let i=0;i<5;i++){
+    const a=i/5*TAU+0.4;
+    makeChest(CHSM[0]+Math.cos(a)*176,CHSM[1]+Math.sin(a)*176);
+  }
+  makeChest(CHSM_BOSS[0]+34,CHSM_BOSS[1]+30);
+}
+/* ---- 地下矿区的驻军：只在盆里现界，离开整批收掉（和现代城同一套） ---- */
+const CHSM_KINDS=['chsm_hili','chsm_hili','slime_mud','chsm_hili','chsm_grunt',
+                  'chsm_lizard','chsm_elite'];
+function chsmSpotOk(x,z,r){
+  if(chsmDist(x,z)>CHSM_WALK-10)return false;
+  if(Math.hypot(x-CHSM_BOSS[0],z-CHSM_BOSS[1])<70)return false;      // 石厅是boss的
+  for(const v of chsmVents)if(!v.dead&&Math.hypot(x-v.x,z-v.z)<v.r+r+2)return false;
+  for(const L of CHSM_LIGHTS)if(Math.hypot(x-L.x,z-L.z)<5)return false;
+  return true;
+}
+function chsmSpawnMob(kind,x,z){
+  const e=new Enemy(kind,x,z);
+  e.chsm=1;e.home=[x,z];e.leash=46;
+  enemies.push(e);          // Enemy 构造器不入表，刷怪器负责（和现代城同一套）
+  return e;
+}
+function chsmMobCount(){
+  let n=0;
+  for(const e of enemies)if(e.alive&&e.chsm&&e!==chsmBoss)n++;
+  return n;
+}
+function chsmFillMobs(n){
+  for(let k=0;k<n;k++){
+    for(let a=0;a<30;a++){
+      const ang=Math.random()*TAU,r=rnd(58,CHSM_WALK-24);
+      const x=CHSM[0]+Math.cos(ang)*r,z=CHSM[1]+Math.sin(ang)*r;
+      if(!chsmSpotOk(x,z,1.1))continue;
+      chsmSpawnMob(CHSM_KINDS[rndi(0,CHSM_KINDS.length-1)],x,z);
+      break;
+    }
+  }
+}
+function spawnChsmMobs(){
+  if(chsmMobCount())return;
+  chsmFillMobs(18);
+}
+function chsmCull(){
+  const wasBar=!!(chsmBoss&&chsmBoss.barOn);
+  for(let i=enemies.length-1;i>=0;i--){
+    const e=enemies[i];
+    if(!e.chsm)continue;
+    e.alive=false;
+    e.clearStunFx();
+    if(e.model)enemyRoot.remove(e.model);
+    if(e.shadow)scene.remove(e.shadow);
+    enemies.splice(i,1);
+  }
+  chsmBoss=null;chsmEchoes.length=0;chsmTopT=0;
+  if(wasBar)showBossBar(false);
+}
+/* 溟泥之主的建模：一整团立起来的黑泥，中心一枚被泡穿的流明核，
+   周身挂着几根会自己摆动的泥须——远看就知道这东西不是从地面上来的。 */
+function buildChsmLord(){
+  const root=new Node(),MUDC=[0.13,0.07,0.19],MUD2=[0.22,0.12,0.30];
+  const body=makeMesh(GEO.sphere8,MUDC);
+  body.setPos(0,3.1,0).setScale(3.0,3.4,3.0);root.add(body);
+  const skirt=makeMesh(GEO.sphere8,MUD2);
+  skirt.setPos(0,1.0,0).setScale(3.9,1.2,3.9);root.add(skirt);
+  const head=makeMesh(GEO.sphere8,MUD2);
+  head.setPos(0,6.0,-0.4).setScale(1.7,1.5,1.6);root.add(head);
+  const core=makeMesh(GEO.sphere8,LUMEN_W,0.9);
+  core.setPos(0,3.4,-2.3).setScale(0.95,1.15,0.95);core.emissive=1.7;root.add(core);
+  const eyes=[];
+  for(const s of[-1,1]){
+    const e=makeMesh(GEO.sphere8,LUMEN2,0.95);
+    e.setPos(s*0.62,6.5,-1.7).setScale(0.24,0.3,0.2);e.emissive=1.6;
+    root.add(e);eyes.push(e);
+  }
+  const arms=[];
+  for(let i=0;i<6;i++){
+    const a=i/6*TAU,g=new Node();
+    g.setPos(Math.cos(a)*2.6,2.4+i%3*0.9,Math.sin(a)*2.6);
+    const seg=makeMesh(GEO.capsule,i%2?MUDC:MUD2);
+    seg.setPos(0,-1.4,0).setScale(0.42,3.0,0.42);g.add(seg);
+    const tip=makeMesh(GEO.sphere8,MUD2);
+    tip.setPos(0,-3.0,0).setScale(0.55,0.5,0.55);g.add(tip);
+    g.az=a;root.add(g);arms.push(g);
+  }
+  const crown=[];
+  for(let i=0;i<5;i++){
+    const a=i/5*TAU;
+    const sp=makeMesh(GEO.cone,MUD2);
+    sp.setPos(Math.cos(a)*1.3,7.5,Math.sin(a)*1.3-0.3).setScale(0.4,1.8,0.4);
+    sp.rx=Math.sin(a)*0.3;sp.rz=-Math.cos(a)*0.3;
+    root.add(sp);crown.push(sp);
+  }
+  root.userData={core:core,eyes:eyes,arms:arms,crown:crown};
+  return root;
+}
+function spawnChsmBoss(){
+  if(chsmBoss&&chsmBoss.alive)return;
+  const x=CHSM_BOSS[0],z=CHSM_BOSS[1];
+  const e=new Enemy('chsm_lord',x,z);
+  e.chsm=1;e.isLord=true;e.home=[x,z];e.leash=999;
+  e.deck=[x,z,52];e.deckY=chsmRaw(x,z);
+  e.aiS='idle';e.aiT=2.0;e.aiA=0;e.aiN=0;
+  chsmBoss=e;chsmBossRespawnT=0;
+  enemies.push(e);
+}
+/* 大王的三件套：泥浪（贴身横扫）、黑泥喷涌（延迟落点）、召涌口（补场） */
+function chsmLordAI(e,dt){
+  const px=player.pos[0],pz=player.pos[2];
+  const dx=px-e.pos[0],dz=pz-e.pos[2];
+  const dist=Math.hypot(dx,dz);
+  e.yaw=Math.atan2(-dx,-dz);
+  if(!e.barOn&&dist<40&&!player.dead){
+    e.barOn=true;showBossBar(true,e);bigMsg('溟泥之主');
+    toast('大石厅里的黑泥立起来了：它会横扫泥浪、从地缝喷泥，还会把矿洞暴徒拽出泥面');
+  }
+  if(e.barOn&&dist>62){e.barOn=false;showBossBar(false);}
+  if(e.aiS==='idle'){
+    e.aiT-=dt;
+    if(dist<44||e.aiT<=0){e.aiS='chase';e.aiT=0;}
+  }else if(e.aiS==='chase'){
+    if(dist>10){
+      e.pos[0]+=dx/dist*dt*e.speed;e.pos[2]+=dz/dist*dt*e.speed;
+    }else{
+      e.aiS='wind';e.aiT=0.7;e.aiMove=dist<7?'wave':(Math.random()<0.55?'gush':'summon');
+    }
+  }else if(e.aiS==='wind'){
+    e.aiT-=dt;
+    if(e.aiT<=0){
+      const y=e.pos[1];
+      if(e.aiMove==='wave'){
+        e.aiA=0;e.aiS='wave';e.aiT=0.5;
+        fxRing([e.pos[0],y+0.16,e.pos[2]],MUD_V,13.0,0.5);
+      }else if(e.aiMove==='gush'){
+        for(let i=0;i<6;i++){
+          const a=Math.random()*TAU,r=rnd(3,13);
+          chsmEchoes.push({x:px+Math.cos(a)*r*0.4,z:pz+Math.sin(a)*r*0.4,
+            y:terrainHeight(px+Math.cos(a)*r*0.4,pz+Math.sin(a)*r*0.4),
+            t:0.5+i*0.12,r:3.6,dmg:e.atk*0.55,src:e});
+        }
+        e.aiS='recover';e.aiT=1.1;
+      }else{
+        for(let i=0;i<2;i++){
+          const a=Math.random()*TAU,r=rnd(60,CHSM_WALK-30);
+          const x=CHSM[0]+Math.cos(a)*r,z=CHSM[1]+Math.sin(a)*r;
+          if(chsmSpotOk(x,z,1.2)){
+            const m=chsmSpawnMob('chsm_grunt',x,z);
+            fxSphere([x,m.pos[1]+1.2,z],[0.6,0.28,0.7],2.2,0.5,0.8);
+          }
+        }
+        toast('溟泥之主把两只矿洞暴徒从泥里拽了出来');
+        e.aiS='recover';e.aiT=1.2;
+      }
+    }
+  }else if(e.aiS==='wave'){
+    e.aiT-=dt;
+    if(!e.aiHit&&e.aiT<0.3){
+      e.aiHit=true;
+      if(dist<9.6&&!player.dead){
+        hurtPlayer(Math.round(e.atk*1.15),e);
+        const kx=(player.pos[0]-e.pos[0])/(dist||1),kz=(player.pos[2]-e.pos[2])/(dist||1);
+        player.pos[0]+=kx*3.2;player.pos[2]+=kz*3.2;
+        if(player.vel){player.vel[0]+=kx*7;player.vel[2]+=kz*7;}
+      }
+      fxParticles([e.pos[0],e.pos[1]+1.6,e.pos[2]],[0.62,0.28,0.72],8.0,22,0.8,true);
+    }
+    if(e.aiT<=0){e.aiS='recover';e.aiT=0.9;e.aiHit=false;}
+  }else if(e.aiS==='recover'){
+    e.aiT-=dt;
+    if(e.aiT<=0){e.aiS='chase';e.aiT=0;}
+  }
+  /* 台面与建模：石厅是解析地面，直接钉在 deckY 上，别走通用重力那一套 */
+  e.pos[1]=e.deckY;
+  e.model.setPos(e.pos[0],e.pos[1],e.pos[2]);
+  e.model.ry=e.yaw;
+  const ud=e.model.userData;
+  if(ud){
+    const t=gameTime;
+    ud.core.emissive=1.5+Math.sin(t*2.4)*0.35;
+    ud.core.py=3.4+Math.sin(t*1.8)*0.25;
+    for(let i=0;i<ud.arms.length;i++){
+      const g=ud.arms[i];
+      g.rx=Math.sin(t*1.6+i)*0.34;
+      g.rz=Math.cos(t*1.3+i*0.8)*0.22;
+    }
+    for(let i=0;i<ud.eyes.length;i++)ud.eyes[i].emissive=1.4+Math.sin(t*3.1+i)*0.4;
+  }
+  e.updateShadow();
+}
+/* ============ 渊下宫：驻军、跋掣、传送与交互 ============ */
+const ENK_KINDS=['slime_abyss','slime_abyss','enk_hunter','enk_hunter',
+                 'enk_lizard','enk_guard'];
+function enkSpotOk(x,z,r,noArena){
+  const p=enkPlatAt(x,z);
+  if(!p)return false;
+  if(!noArena&&enkDist(x,z)>ENK_R+30)return false;
+  if(!noArena&&Math.hypot(x-ENK_BOSS[0],z-ENK_BOSS[1])<ENK_ARENA_R+8)return false;
+  return true;
+}
+function enkPlatAt(x,z){
+  const lx=x-ENK[0],lz=z-ENK[1];
+  for(const p of ENK_PLATS)if(Math.hypot(lx-p.dx,lz-p.dz)<p.r-2)return p;
+  return null;
+}
+function enkSpawnMob(kind,x,z){
+  const e=new Enemy(kind,x,z);
+  e.enk=1;e.home=[x,z];e.leash=40;
+  /* 地台是一块块孤岛：不给自己那块盘的夹取，怪追到人沿口就一路掉进海渊，
+     变成打不着也摸不清的漂在海面上的模型。 */
+  const p=enkPlatAt(x,z);
+  if(p){e.deck=[ENK[0]+p.dx,ENK[1]+p.dz,p.r-2];e.deckY=p.y;}
+  enemies.push(e);
+  return e;
+}
+function enkMobCount(){
+  let n=0;
+  for(const e of enemies)if(e.alive&&e.enk&&e!==enkBoss)n++;
+  return n;
+}
+function enkFillMobs(n){
+  for(let k=0;k<n;k++){
+    for(let a=0;a<34;a++){
+      const p=ENK_PLATS[rndi(0,ENK_PLATS.length-1)];
+      const ang=Math.random()*TAU,r=Math.random()*p.r*0.8;
+      const x=ENK[0]+p.dx+Math.cos(ang)*r,z=ENK[1]+p.dz+Math.sin(ang)*r;
+      if(!enkSpotOk(x,z,1.1))continue;
+      enkSpawnMob(ENK_KINDS[rndi(0,ENK_KINDS.length-1)],x,z);
+      break;
+    }
+  }
+}
+function spawnEnkMobs(){
+  if(enkMobCount())return;
+  enkFillMobs(20);
+}
+function enkFallDeath(){
+  if(player.dead)return;
+  bigMsg('坠入海渊');
+  toast('脚下没有地台，人一直往海渊底下掉');
+  hurtPlayer(99999,null);
+}
+function enkCull(){
+  const wasBar=!!(enkBoss&&enkBoss.barOn);
+  for(let i=enemies.length-1;i>=0;i--){
+    const e=enemies[i];
+    if(!e.enk)continue;
+    e.alive=false;
+    e.clearStunFx();
+    if(e.model)enemyRoot.remove(e.model);
+    if(e.shadow)scene.remove(e.shadow);
+    enemies.splice(i,1);
+  }
+  enkBoss=null;enkTopT=0;
+  if(wasBar)showBossBar(false);
+}
+/* 跋掣的建模：一条盘在海渊之上的深海王，扁平的鳐身、两对光须、
+   背上一枚会转的水色核——远看就知道这东西是从海底带上来的。 */
+function buildEnkLord(){
+  const root=new Node();
+  const SK=[0.20,0.36,0.54],SK2=[0.30,0.52,0.70],BELLY=[0.62,0.78,0.88];
+  const body=makeMesh(GEO.sphere8,SK);
+  body.setPos(0,3.4,0).setScale(3.6,1.9,4.6);root.add(body);
+  const wing=[];
+  for(const s of[-1,1]){
+    const w=makeMesh(GEO.box,SK2);
+    w.setPos(s*4.2,3.5,-0.4).setScale(5.4,0.5,4.2);
+    w.rz=-s*0.22;root.add(w);wing.push(w);
+    const tip=makeMesh(GEO.cone,SK2);
+    tip.setPos(s*6.9,3.4,-0.4).setScale(0.6,2.6,0.6);
+    tip.rz=-s*1.4;root.add(tip);
+  }
+  const head=makeMesh(GEO.sphere8,BELLY);
+  head.setPos(0,3.9,3.4).setScale(1.7,1.3,1.9);root.add(head);
+  for(const s of[-1,1]){
+    const eye=makeMesh(GEO.sphere8,[0.44,0.86,0.98],0.95);
+    eye.setPos(s*0.72,4.5,4.5).setScale(0.26,0.3,0.22);eye.emissive=1.6;root.add(eye);
+  }
+  const barb=[];
+  for(let i=0;i<6;i++){
+    const a=i/6*TAU;
+    const g=new Node();
+    g.setPos(Math.cos(a)*2.4,2.2,Math.sin(a)*2.6-0.6);
+    const seg=makeMesh(GEO.capsule,SK);
+    seg.setPos(0,-1.5,0).setScale(0.3,3.0,0.3);g.add(seg);
+    const bulb=makeMesh(GEO.sphere8,[0.52,0.92,1.0],0.9);
+    bulb.setPos(0,-3.2,0).setScale(0.42,0.42,0.42);bulb.emissive=1.5;g.add(bulb);
+    g.az=a;root.add(g);barb.push(g);
+  }
+  const core=makeMesh(GEO.sphere8,[0.40,0.88,1.0],0.85);
+  core.setPos(0,4.6,-1.2).setScale(1.15,1.15,1.15);core.emissive=2.0;root.add(core);
+  const halo=makeMesh(GEO.ring,[0.52,0.92,1.0],0.7);
+  halo.setPos(0,4.6,-1.2).setScale(2.6,1,2.6);halo.rx=Math.PI/2;root.add(halo);
+  root.userData={wing:wing,barb:barb,core:core,halo:halo};
+  return root;
+}
+function spawnEnkBoss(){
+  if(enkBoss&&enkBoss.alive)return;
+  const x=ENK[0]+(ENK_BOSS[0]-ENK[0]),z=ENK[1]+(ENK_BOSS[1]-ENK[1]);
+  const e=new Enemy('enk_lord',x,z);
+  e.enk=1;e.isEnkLord=true;e.home=[x,z];e.leash=999;
+  e.deck=[x,z,ENK_ARENA_R];e.deckY=enkRaw(x,z);
+  e.aiS='idle';e.aiT=2.0;e.aiN=0;e.aiHit=false;
+  enkBoss=e;enkBossRespawnT=0;
+  enemies.push(e);
+}
+/* 跋掣四招：水月横扫、海渊涌潮（延迟落点）、光须锁链（拉人）、召深海眷属 */
+function enkLordAI(e,dt){
+  const px=player.pos[0],pz=player.pos[2];
+  const dx=px-e.pos[0],dz=pz-e.pos[2];
+  const dist=Math.hypot(dx,dz);
+  e.yaw=Math.atan2(-dx,-dz);
+  if(!e.barOn&&dist<46&&!player.dead){
+    e.barOn=true;showBossBar(true,e);bigMsg('跋掣');
+    toast('常夜之渊的水开始倒着流：横扫的水月、倒灌的涌潮、还有会拽人的光须都要躲');
+  }
+  if(e.barOn&&dist>70){e.barOn=false;showBossBar(false);}
+  e.pos[1]=e.deckY+Math.sin(gameTime*1.1)*0.5;
+  if(e.aiS==='idle'){
+    e.aiT-=dt;
+    if(dist<46||e.aiT<=0){e.aiS='chase';e.aiT=0;}
+  }else if(e.aiS==='chase'){
+    if(dist>11){
+      e.pos[0]+=dx/dist*dt*e.speed;e.pos[2]+=dz/dist*dt*e.speed;
+    }else{
+      e.aiS='wind';e.aiT=0.66;
+      e.aiMove=['wave','tide','lash','kin'][rndi(0,3)];
+    }
+  }else if(e.aiS==='wind'){
+    e.aiT-=dt;
+    if(e.aiT<=0){
+      const y=e.pos[1];
+      if(e.aiMove==='wave'){
+        e.aiS='swing';e.aiT=0.5;e.aiHit=false;
+        fxRing([e.pos[0],y+0.2,e.pos[2]],[0.44,0.86,0.98],15.0,0.5);
+      }else if(e.aiMove==='tide'){
+        for(let i=0;i<7;i++){
+          const a=Math.random()*TAU,r=rnd(2,12);
+          const tx=px+Math.cos(a)*r,tz=pz+Math.sin(a)*r;
+          enkEchoes.push({x:tx,z:tz,y:terrainHeight(tx,tz),t:0.5+i*0.11,
+            r:3.8,dmg:e.atk*0.5,src:e});
+        }
+        e.aiS='recover';e.aiT=1.0;
+      }else if(e.aiMove==='lash'){
+        const kx=(e.pos[0]-px)*0.62,kz=(e.pos[2]-pz)*0.62;
+        fxLine([e.pos[0],y+3.2,e.pos[2]],[px,y+1.0,pz],[0.52,0.92,1.0],0.35,0.16);
+        if(dist<16&&!player.dead){
+          player.pos[0]+=kx*0.5;player.pos[2]+=kz*0.5;
+          hurtPlayer(Math.round(e.atk*0.7),e);
+        }
+        e.aiS='recover';e.aiT=1.1;
+      }else{
+        for(let i=0;i<2;i++){
+          const p=ENK_PLATS[6];
+          const a=Math.random()*TAU,r=rnd(14,p.r*0.7);
+          const x=ENK[0]+p.dx+Math.cos(a)*r,z=ENK[1]+p.dz+Math.sin(a)*r;
+          if(enkSpotOk(x,z,1.2,true)){
+            const m=enkSpawnMob('raycrawler',x,z);
+            fxSphere([x,m.pos[1]+1.2,z],[0.44,0.86,0.98],2.2,0.5,0.8);
+          }
+        }
+        toast('跋掣从海渊里叫上来两只深海眷属');
+        e.aiS='recover';e.aiT=1.2;
+      }
+    }
+  }else if(e.aiS==='swing'){
+    e.aiT-=dt;
+    if(!e.aiHit&&e.aiT<0.3){
+      e.aiHit=true;
+      if(dist<10.4&&!player.dead){
+        hurtPlayer(Math.round(e.atk*1.2),e);
+        const kx=(px-e.pos[0])/(dist||1),kz=(pz-e.pos[2])/(dist||1);
+        player.pos[0]+=kx*3.6;player.pos[2]+=kz*3.6;
+        if(player.vel){player.vel[0]+=kx*8;player.vel[2]+=kz*8;}
+      }
+      fxParticles([e.pos[0],e.pos[1]+1.8,e.pos[2]],[0.52,0.92,1.0],9.0,24,0.8,true);
+    }
+    if(e.aiT<=0){e.aiS='recover';e.aiT=0.85;}
+  }else if(e.aiS==='recover'){
+    e.aiT-=dt;
+    if(e.aiT<=0){e.aiS='chase';e.aiT=0;}
+  }
+  e.model.setPos(e.pos[0],e.pos[1],e.pos[2]);
+  e.model.ry=e.yaw;
+  const ud=e.model.userData;
+  if(ud){
+    const t=gameTime;
+    for(let i=0;i<ud.wing.length;i++)ud.wing[i].rz=(i?-1:1)*(0.22+Math.sin(t*1.5)*0.16);
+    for(let i=0;i<ud.barb.length;i++){
+      ud.barb[i].rx=Math.sin(t*1.4+i)*0.3;
+      ud.barb[i].ry=t*0.5+i;
+    }
+    ud.core.emissive=1.8+Math.sin(t*2.7)*0.35;
+    ud.halo.ry+=dt*1.1;
+  }
+  e.updateShadow();
+}
+function updateEnkanomiya(dt){
+  for(const s of enkSpin)if(s.m)s.m.ry+=dt*s.sp;
+  for(let i=enkEchoes.length-1;i>=0;i--){
+    const q=enkEchoes[i];
+    q.t-=dt;
+    if(q.t>0)continue;
+    fxRing([q.x,q.y+0.14,q.z],[0.44,0.86,0.98],q.r*2.1,0.5);
+    fxSphere([q.x,q.y+0.9,q.z],[0.52,0.92,1.0],q.r*0.7,0.35,0.7);
+    if(!player.dead&&Math.hypot(player.pos[0]-q.x,player.pos[2]-q.z)<q.r)
+      hurtPlayer(q.dmg,q.src);
+    enkEchoes.splice(i,1);
+  }
+  if(enkBossRespawnT>0){
+    enkBossRespawnT-=dt;
+    if(enkBossRespawnT<=0&&player.zone==='enkan')spawnEnkBoss();
+  }
+  /* 立海那只漩涡在大世界里也得有动静：离得近才每隔一段甩一圈水纹，免得白烧帧 */
+  if(player.zone!=='enkan'){
+    enWhirlT-=dt;
+    if(enWhirlT<=0&&player.zone==='field'&&!player.dead&&
+       Math.hypot(player.pos[0]-ENK_WHIRL[0],player.pos[2]-ENK_WHIRL[1])<70){
+      enWhirlT=1.6;
+      fxRing([ENK_WHIRL[0],WATER_Y+0.06,ENK_WHIRL[1]],[0.44,0.86,0.98],18,0.7);
+    }
+    return;
+  }
+  if(!enkBoss&&enkBossRespawnT<=0)spawnEnkBoss();
+  enkTopT-=dt;
+  if(enkTopT<=0){
+    enkTopT=24;
+    if(enkMobCount()<18)enkFillMobs(4);
+  }
+}
+function registerEnkanomiya(){
+  TELEPORTS.push({id:'enkpool',name:'渊下宫 · 海渊之眼（立海漩涡）',
+    x:ENK_WHIRL[0]+46,z:ENK_WHIRL[1],icon:'🌀',color:'#6fe0ff',zone:'field',ina:1});
+  TELEPORTS.push({id:'enkcave',name:'渊下宫 · 狭间之街',
+    x:ENK_SPAWN[0],z:ENK_SPAWN[1],icon:'🏛',color:'#9fe8ff',zone:'enkan'});
+  TELEPORTS.push({id:'enkboss',name:'渊下宫 · 常夜之渊',
+    x:ENK_BOSS[0],z:ENK_BOSS[1],icon:'🌊',color:'#9fe8ff',zone:'enkan'});
+  interactables.push({x:ENK_WHIRL[0],z:ENK_WHIRL[1],radius:7.0,
+    label:'潜入立海中央的漩涡 · 渊下宫',done:false,
+    action:function(){
+      doTeleport({x:ENK_SPAWN[0],z:ENK_SPAWN[1],zone:'enkan',name:'渊下宫'});
+    }});
+  interactables.push({x:ENK_RET[0],z:ENK_RET[1],radius:5.2,
+    label:'穿月门返回海祇岛 · 立海',done:false,
+    action:function(){
+      doTeleport({x:ENK_WHIRL[0]+30,z:ENK_WHIRL[1],zone:'field',name:'海祇岛 · 立海'});
+    }});
+  for(let i=0;i<5;i++){
+    const p=ENK_PLATS[i];
+    makeChest(ENK[0]+p.dx+Math.cos(i*1.7)*p.r*0.5,ENK[1]+p.dz+Math.sin(i*1.7)*p.r*0.5);
+  }
+  makeChest(ENK_BOSS[0]-30,ENK_BOSS[1]+22);
+  enWhirlBuild();
+}
+/* 立海中央那只漩涡：潟湖的水面是疏网那片"真水"，漩涡只能做成立体节点压在水面上。
+   一圈逆着转的发光臂 + 一个越转越深的漏斗，人在老远就能看出这不是普通的水花。 */
+function enWhirlBuild(){
+  const g=new Node();
+  g.setPos(ENK_WHIRL[0],WATER_Y,ENK_WHIRL[1]);
+  worldRoot.add(g);
+  /* 水面片就压在 WATER_Y 上：所有东西都必须比它高一点，否则整个漏斗沉在水下看不见 */
+  const maw=makeMesh(GEO.disc,[0.05,0.16,0.30],0.88);
+  maw.setPos(0,0.14,0).setScale(15,1,15);maw.emissive=0.35;g.add(maw);
+  for(const rr of[9.5,13.5,17.5]){
+    const rg=makeMesh(geoRing(rr-1.1,rr,44),[0.42,0.86,1.0],0.6);
+    rg.setPos(0,0.20,0);rg.emissive=1.1;g.add(rg);
+  }
+  /* 水墙：一圈圈往里、往上收的浪花，转起来就是一只正在往下吸的漏斗 */
+  for(let i=0;i<22;i++){
+    const t=i/22,rr=16.5*(1-t*0.72),yy=0.30+t*2.9;
+    const b=makeMesh(GEO.sphere8,i%2?[0.52,0.92,1.0]:[0.36,0.72,0.98],0.7);
+    b.setPos(Math.cos(t*TAU*2.5)*rr,yy,Math.sin(t*TAU*2.5)*rr);
+    b.setScale(0.9-0.4*t,0.9-0.4*t,0.9-0.4*t);
+    b.emissive=1.4;g.add(b);
+  }
+  /* 一道水色光柱：入口在潟湖另一头也认得出来 */
+  const beam=makeMesh(GEO.cylinder,[0.46,0.88,1.0],0.26);
+  beam.setPos(0,8.4,0).setScale(2.6,16,2.6);beam.emissive=1.2;g.add(beam);
+  const crown=makeMesh(geoRing(3.2,5.4,36),[0.56,0.94,1.0],0.5);
+  crown.setPos(0,15.6,0);crown.emissive=1.3;g.add(crown);
+  enkSpin.push({m:g,sp:1.25});
+  enkWhirl=g;
 }
 /* 野伏众 / 海乱鬼：宽笠、面甲、太刀，衣摆是雷染的深紫。
    海乱鬼大一圈，肩甲与面甲上的角是它和寻常浪人唯一的分野。 */
@@ -16074,7 +17667,7 @@ const traveler={
       h.e.takeDamage(atkOf(this)*mult,seg===2?'anemo':null);
       fxHitSpark([h.e.pos[0],h.e.pos[1]+0.9,h.e.pos[2]],[0.8,1.0,0.9]);
     }
-    const yawBase=player.camYaw;
+    const yawBase=fxYawOf(player.camYaw);
     const yaws=[yawBase+Math.PI/2,yawBase-Math.PI/2,yawBase];
     const pitches=[0.3,-0.3,-0.2];
     fxSlashArc([origin[0]+dir[0]*range*0.5,origin[1],origin[2]+dir[2]*range*0.5],
@@ -16283,7 +17876,7 @@ const kaeya={
     const mult=[1.0,1.05,1.5][seg];
     const hit=enemiesInCone(origin,dir,range,Math.cos(0.95));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg===2?'cryo':null);
-    const yawBase=player.camYaw;
+    const yawBase=fxYawOf(player.camYaw);
     const yaws=[yawBase+Math.PI/2,yawBase-Math.PI/2,yawBase];
     const pitches=[0.3,-0.3,-0.2];
     fxSlashArc([origin[0]+dir[0]*range*0.5,origin[1],origin[2]+dir[2]*range*0.5],
@@ -16492,7 +18085,7 @@ const raiden={
     const mult=[1.1,1.15,1.55][seg];
     const hit=enemiesInCone(origin,dir,range,Math.cos(0.85));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg===2?'electro':null);
-    const yawBase=player.camYaw;
+    const yawBase=fxYawOf(player.camYaw);
     const yaws=[yawBase+Math.PI/2,yawBase-Math.PI/2,yawBase];
     const pitches=[0.4,-0.4,-0.3];
     fxSlashArc([origin[0]+dir[0]*range*0.5,origin[1]+0.2,origin[2]+dir[2]*range*0.5],
@@ -16735,7 +18328,7 @@ const zhongli={
     const mult=[1.0,1.1,1.5][seg];
     const hit=enemiesInCone(origin,dir,range,Math.cos(0.85));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg===2?'geo':null);
-    const yawBase=player.camYaw;
+    const yawBase=fxYawOf(player.camYaw);
     const yaws=[yawBase+Math.PI/2,yawBase-Math.PI/2,yawBase];
     const pitches=[0.4,-0.4,-0.3];
     fxSlashArc([origin[0]+dir[0]*range*0.5,origin[1]+0.2,origin[2]+dir[2]*range*0.5],
@@ -16884,7 +18477,7 @@ const keqing={
     const hit=enemiesInCone(origin,dir,range,Math.cos(0.9));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg===2?'electro':null);
     const yb=player.camYaw;
-    const yaws=[yb+Math.PI/2,yb-Math.PI/2,yb];
+    const yaws=[fxYawOf(yb+Math.PI/2),fxYawOf(yb-Math.PI/2),fxYawOf(yb)];
     const pitches=[0.35,-0.35,-0.25];
     fxSlashArc([origin[0]+dir[0]*range*0.55,origin[1]+0.1,origin[2]+dir[2]*range*0.55],
                yaws[seg],pitches[seg],[0.84,0.7,1.0],range*0.7,0.22);
@@ -17136,7 +18729,7 @@ const diluc={
     const hit=enemiesInCone(origin,dir,range,Math.cos(1.05));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg>=1?'pyro':null);
     const yb=player.camYaw;
-    const yaws=[yb+Math.PI/2,yb-Math.PI/2,yb];
+    const yaws=[fxYawOf(yb+Math.PI/2),fxYawOf(yb-Math.PI/2),fxYawOf(yb)];
     const pitches=[0.4,-0.4,-0.3];
     fxSlashArc([origin[0]+dir[0]*range*0.55,origin[1]+0.1,origin[2]+dir[2]*range*0.55],
                yaws[seg],pitches[seg],[1.0,0.62,0.24],range*0.8,0.3);
@@ -17159,9 +18752,9 @@ const diluc={
       const lst=enemiesInCone(origin,dir,4.6,Math.cos(1.1));
       for(const h of lst)h.e.takeDamage(atkOf(self)*1.6,'pyro');
       fxSlashArc([origin[0]+dir[0]*2.4,origin[1],origin[2]+dir[2]*2.4],
-                 yb+Math.PI/2,-0.1,[1.0,0.6,0.24],4.4,0.3);
+                 fxYawOf(yb+Math.PI/2),-0.1,[1.0,0.6,0.24],4.4,0.3);
       fxSlashArc([origin[0]+dir[0]*2.4,origin[1]+0.3,origin[2]+dir[2]*2.4],
-                 yb-Math.PI/2,0.1,[1.0,0.75,0.35],4.0,0.26);
+                 fxYawOf(yb-Math.PI/2),0.1,[1.0,0.75,0.35],4.0,0.26);
     }else if(st===1){
       const lst=enemiesInCone(origin,dir,4.4,Math.cos(0.95));
       for(const h of lst){
@@ -17169,13 +18762,13 @@ const diluc={
         h.e.pos[0]+=dir[0]*0.8;h.e.pos[2]+=dir[2]*0.8;
       }
       fxSlashArc([origin[0]+dir[0]*2.2,origin[1]+0.6,origin[2]+dir[2]*2.2],
-                 yb,0.9,[1.0,0.66,0.26],4.2,0.32);
+                 fxYawOf(yb),0.9,[1.0,0.66,0.26],4.2,0.32);
       fxParticles([origin[0]+dir[0]*3,origin[1]+1.4,origin[2]+dir[2]*3],
                   [1.0,0.6,0.22],1.1,10,1.0,true);
     }else{
       const tx=player.pos[0]+dir[0]*3,tz=player.pos[2]+dir[2]*3;
       const ty=terrainHeight(tx,tz);
-      fxSlashArc([tx,ty+2.0,tz],yb,1.5,[1.0,0.55,0.2],4.6,0.3);
+      fxSlashArc([tx,ty+2.0,tz],fxYawOf(yb),0.15,[1.0,0.55,0.2],4.6,0.3);
       const lst=enemiesInCircle([tx,ty,tz],5.0);
       for(const h of lst){
         h.e.takeDamage(atkOf(self)*2.7,'pyro');
@@ -17269,7 +18862,7 @@ const qiqi={
     const hit=enemiesInCone(origin,dir,range,Math.cos(1.0));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg===2?'cryo':null);
     const yb=player.camYaw;
-    const yaws=[yb+Math.PI/2,yb-Math.PI/2,yb];
+    const yaws=[fxYawOf(yb+Math.PI/2),fxYawOf(yb-Math.PI/2),fxYawOf(yb)];
     const pitches=[0.32,-0.32,-0.36];
     fxSlashArc([origin[0]+dir[0]*range*0.55,origin[1]+0.1,origin[2]+dir[2]*range*0.55],
                yaws[seg],pitches[seg],[0.74,0.92,1.0],range*0.72,0.24);
@@ -17428,7 +19021,7 @@ const furina={
       if(cnOn('furina',6))h.e.takeDamage(hpMaxOf(activeMember())*0.06,'hydro');
     }
     const yb=player.camYaw;
-    const yaws=[yb+Math.PI/2,yb-Math.PI/2,yb];
+    const yaws=[fxYawOf(yb+Math.PI/2),fxYawOf(yb-Math.PI/2),fxYawOf(yb)];
     const pitches=[0.26,-0.26,-0.38];
     fxSlashArc([origin[0]+dir[0]*range*0.55,origin[1]+0.1,origin[2]+dir[2]*range*0.55],
                yaws[seg],pitches[seg],[0.56,0.86,1.0],range*0.7,0.22);
@@ -17885,7 +19478,7 @@ const niulai={
       }
     }
     const yb=player.camYaw;
-    const yaws=[yb+Math.PI/2,yb-Math.PI/2,yb];
+    const yaws=[fxYawOf(yb+Math.PI/2),fxYawOf(yb-Math.PI/2),fxYawOf(yb)];
     const pitches=[0.34,-0.34,-0.4];
     fxSlashArc([origin[0]+dir[0]*range*0.55,origin[1]+0.1,origin[2]+dir[2]*range*0.55],
                yaws[seg],pitches[seg],[0.94,0.86,0.66],range*0.72,0.22);
@@ -18269,7 +19862,7 @@ const yish={
     const o=[player.pos[0],player.pos[1]+1.2,player.pos[2]];
     const pitches=[0.2,0.2,-0.5];
     fxSlashArc([o[0]+dir[0]*2.0,o[1],o[2]+dir[2]*2.0],
-               Math.atan2(-dir[0],-dir[2]),pitches[seg],[1,0.86,0.5],2.6,0.26);
+               Math.atan2(dir[0],dir[2]),pitches[seg],[1,0.86,0.5],2.6,0.26);
     for(const h of enemiesInCone(o,dir,3.6,Math.cos(0.8))){
       h.e.takeDamage(atkOf(self)*(1.15+seg*0.22),null);
       if(Math.random()<0.22)h.e.applyStun(0.5);
@@ -18304,7 +19897,7 @@ const yish={
           showDamage([h.e.pos[0],h.e.pos[1]+1.9,h.e.pos[2]],'狮子斩','#ffc44d','big');
         }
         fxSlashArc([o[0]+dir[0]*2.2,o[1],o[2]+dir[2]*2.2],
-                   Math.atan2(-dir[0],-dir[2]),-0.55,[1,0.86,0.46],3.8,0.3);
+                   Math.atan2(dir[0],dir[2]),-0.55,[1,0.86,0.46],3.8,0.3);
         fxParticles([o[0]+dir[0]*2.4,o[1],o[2]+dir[2]*2.4],
                     [0.86,0.8,0.66],2.2,16,0.5,false);
       }
@@ -18455,7 +20048,7 @@ const xiao={
     const hit=enemiesInCone(origin,dir,range,Math.cos(0.8));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg===2?'anemo':null);
     const yb=player.camYaw;
-    const yaws=[yb+Math.PI/2,yb-Math.PI/2,yb],pitches=[0.42,-0.42,-0.3];
+    const yaws=[fxYawOf(yb+Math.PI/2),fxYawOf(yb-Math.PI/2),fxYawOf(yb)],pitches=[0.42,-0.42,-0.3];
     fxSlashArc([origin[0]+dir[0]*range*0.5,origin[1]+0.1,origin[2]+dir[2]*range*0.5],
                yaws[seg],pitches[seg],[0.62,0.96,0.86],range*0.72,0.26);
     if(seg===2)fxParticles([origin[0]+dir[0]*range*0.7,origin[1],origin[2]+dir[2]*range*0.7],
@@ -18577,7 +20170,7 @@ const xiangling={
     const hit=enemiesInCone(origin,dir,range,Math.cos(0.85));
     for(const h of hit)h.e.takeDamage(atkOf(this)*mult,seg===2?'pyro':null);
     const yb=player.camYaw;
-    const yaws=[yb-Math.PI/2,yb+Math.PI/2,yb],pitches=[-0.34,0.34,0.2];
+    const yaws=[fxYawOf(yb-Math.PI/2),fxYawOf(yb+Math.PI/2),fxYawOf(yb)],pitches=[-0.34,0.34,0.2];
     fxSlashArc([origin[0]+dir[0]*range*0.5,origin[1]+0.1,origin[2]+dir[2]*range*0.5],
                yaws[seg],pitches[seg],[1.0,0.70,0.30],range*0.74,0.30);
     if(seg===2)fxParticles([origin[0]+dir[0]*range*0.7,origin[1],origin[2]+dir[2]*range*0.7],
@@ -20067,7 +21660,7 @@ const durin={
     const el=(seg===2||player.durinBlack)?'pyro':null;
     for(const h of enemiesInCone(o,dir,rng,Math.cos(0.85)))
       h.e.takeDamage(atkOf(self)*mult,el);
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.18,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.18,
       player.durinBlack?[0.86,0.30,0.52]:[1.0,0.66,0.36],rng*0.76,0.30);
     /* 固有天赋「混沌如黑夜构成」：命中叠层，满层后爆发倍率提到 175% */
     player.durinStack=Math.min(2500,(player.durinStack|0)+40);
@@ -20248,7 +21841,7 @@ const chongyun={
     const rng=[3.2,3.5,4.3][seg],mult=[1.00,0.92,1.18][seg];
     const lst=enemiesInCone(o,dir,rng,Math.cos(0.9));
     for(const h of lst)h.e.takeDamage(atkOf(self)*mult,seg===2?'cryo':null);
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.2,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.2,
       seg===2?[0.66,0.90,1.0]:[0.92,0.96,1.0],rng*0.8,0.32);
     /* 1 命「释凌咏冰」：末段甩出三道冰刃，各 50% 攻击力的冰伤 */
     if(seg===2&&cnOn('chongyun',1)){
@@ -20350,7 +21943,7 @@ const xingqiu={
     const rng=[2.9,3.2,3.8][seg],mult=[0.92,0.94,1.10][seg];
     for(const h of enemiesInCone(o,dir,rng,Math.cos(0.85)))
       h.e.takeDamage(atkOf(self)*mult,null);
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.16,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.16,
       [0.86,0.94,1.0],rng*0.72,0.28);
     /* 固有天赋「虚实工笔」：行秋自己常驻 20% 水伤，靠追加一记水弹体现 */
     if(seg===2)for(const h of enemiesInCone(o,dir,rng+1.2,Math.cos(0.9)))
@@ -20406,7 +21999,7 @@ const sayu={
     const rng=[2.8,3.0,3.6][seg],mult=[0.98,0.96,1.30][seg];
     for(const h of enemiesInCone(o,dir,rng,Math.cos(0.9)))
       h.e.takeDamage(atkOf(self)*mult,null);
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.05,o[2]+dir[2]*rng*0.5],player.camYaw,0.24,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.05,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.24,
       [0.80,0.96,0.78],rng*0.7,0.3);
     /* 固有天赋「更加合适的人选」：命中触发扩散式回复 */
     if(player.onFieldSwirlT<=gameTime){
@@ -20515,7 +22108,7 @@ const jean={
     const rng=[3.0,3.3,4.0][seg],mult=[1.00,1.08,1.55][seg];
     const lst=enemiesInCone(o,dir,rng,Math.cos(0.85));
     for(const h of lst)h.e.takeDamage(atkOf(self)*mult,seg===2?'anemo':null);
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.2,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.2,
       seg===2?[0.72,0.97,0.86]:[0.93,0.97,0.95],rng*0.8,0.3);
     if(seg===2)for(const h of lst)knockFrom(h.e,o,0.9);
     /* 固有天赋「顺风而行」：普攻命中有 50% 几率为全队回 15% 攻击力的血 */
@@ -20910,7 +22503,7 @@ const dehya={
     const rng=[3.6,3.9,4.6][seg],mult=[1.10,1.20,1.72][seg];
     const lst=enemiesInCone(o,dir,rng,Math.cos(0.92));
     for(const h of lst)h.e.takeDamage(atkOf(self)*mult,seg>=1?'pyro':null);
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.2,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.2,
       seg>=1?[0.98,0.60,0.30]:[0.94,0.92,0.88],rng*0.85,0.32);
     if(seg===2)for(const h of lst)knockFrom(h.e,o,1.4);
   },
@@ -21385,7 +22978,7 @@ const ayaka={
         if(m&&m.eCd>0)m.eCd=Math.max(0,m.eCd-1);
       }
     }
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.2,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.2,
       el?AK_ICE:[0.94,0.97,0.99],rng*0.85,0.28);
     if(seg===2)for(const h of lst)knockFrom(h.e,o,1.1);
   },
@@ -21591,7 +23184,7 @@ const ayato={
     const rng=[3.1,3.3,4.1][seg],mult=[0.94,1.02,1.40][seg];
     const lst=enemiesInCone(o,dir,rng,Math.cos(0.85));
     for(const h of lst)h.e.takeDamage(atkOf(self)*mult,seg===2?'hydro':null);
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.2,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.2,
       seg===2?AT_WAT:[0.93,0.97,1.0],rng*0.85,0.28);
     if(seg===2)for(const h of lst)knockFrom(h.e,o,1.2);
   },
@@ -21606,7 +23199,7 @@ const ayato={
       if(cnOn('ayato',1)&&h.e.hp<=h.e.hpMax*0.5)d*=1.40;
       h.e.takeDamage(d,'hydro');
     }
-    fxSlashArc([o[0]+dir[0]*1.9,o[1]+0.15,o[2]+dir[2]*1.9],player.camYaw,0.1,AT_WAT,3.4,0.24);
+    fxSlashArc([o[0]+dir[0]*1.9,o[1]+0.15,o[2]+dir[2]*1.9],fxYawOf(player.camYaw),0.1,AT_WAT,3.4,0.24);
     if(tag)showDamage([o[0],o[1]+2.5,o[2]],tag,'#9fe4ff','rx');
     return lst.length;
   },
@@ -21763,7 +23356,7 @@ const hutao={
       if(!h.e.alive)continue;
       if(seg===2)knockFrom(h.e,o,1.3);
     }
-    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],player.camYaw,0.15,
+    fxSlashArc([o[0]+dir[0]*rng*0.5,o[1]+0.1,o[2]+dir[2]*rng*0.5],fxYawOf(player.camYaw),0.15,
       el?HT_FIRE:[0.98,0.94,0.86],rng*0.9,0.28);
   },
   /* 血梅香：挂在既有的灼烧通道上（每秒一跳火伤，8 秒）。重复种只续时间、取更高的一跳 */
@@ -22155,7 +23748,7 @@ const lyney={
         updatePartyUI();
       }
     }
-    fxSlashArc([o[0]+dir[0]*3.0,o[1],o[2]+dir[2]*3.0],player.camYaw,0.2,LN_GOLD,6.0,0.32);
+    fxSlashArc([o[0]+dir[0]*3.0,o[1],o[2]+dir[2]*3.0],fxYawOf(player.camYaw),0.2,LN_GOLD,6.0,0.32);
     fxParticles([o[0]+dir[0]*4.0,o[1]+0.6,o[2]+dir[2]*4.0],LN_FIRE,4.0,20,0.7,true);
     sfxShock([o[0],gy+0.6,o[2]],0.8,7,0.35,0.9);
     toast('眩惑光戏法：烧掉 '+k+' 层隐具余数，'+Math.round(mult*100)+'% 火伤'+
@@ -22658,6 +24251,14 @@ const ART_SETS={
   guardian:{n:'守护之心',c:'#8fd8ff',el:null,
     two:{hpP:0.15},four:{hpP:0.10,defP:0.30},
     d2:'生命值 +15%',d4:'生命值再 +10%，防御力 +30%'},
+  /* ---- 两张地下区域专属套：层岩地下矿区与渊下宫 ---- */
+  lumen:{n:'沉渊流明',c:'#7fe0ff',el:null,
+    two:{defP:0.15},four:{dmg:0.20,em:60},
+    d2:'防御力 +15%',
+    d4:'造成的伤害 +20%，元素精通 +60（在黑泥里活下来的规矩：先扛住，再点亮）'},
+  eternal:{n:'常世冥歌',c:'#b6f0d8',el:null,
+    two:{em:80},four:{dmg:0.18},
+    d2:'元素精通 +80',d4:'造成的伤害 +18%（常世的海底没有太阳，声音就是光）'},
   blade:{n:'辰砂之剑·锋鸣',c:'#ff9a52',el:null,
     two:{cd:0.16},four:{cr:0.10},
     d2:'暴击伤害 +16%',d4:'暴击率 +10%'},
@@ -23246,9 +24847,12 @@ const MAT_INFO={
   hydro:{n:'纯水之心',c:'#4cc2f1'},
   tianli:{n:'天理之核',c:'#e8b0d8'},
   qiu:{n:'都市王冠',c:'#ffd27a'},
+  chsm:{n:'溟泥结晶',c:'#8fd8ff'},
+  enkan:{n:'常世朱印',c:'#b6f0d8'},
   blank:{n:'伏龙原胚',c:'#cbb289'}
 };
-let mats={dvalin:0,wolf:0,hypo:0,vine:0,pyro:0,geo:0,azhdaha:0,hydro:0,tianli:0,qiu:0,blank:0};
+let mats={dvalin:0,wolf:0,hypo:0,vine:0,pyro:0,geo:0,azhdaha:0,hydro:0,tianli:0,qiu:0,
+          chsm:0,enkan:0,blank:0};
 function matTotal(){
   let n=0;
   for(const k in mats)n+=mats[k]|0;
@@ -23531,6 +25135,8 @@ function atkOf(ch){
   /* 停云的「赐福」：场上角色攻击期提高 28%（1 命「借风入怀」抬到 34%）；
      魈的傩舞是拿生命换的攻击大幅加成 */
   let mul=1;
+  /* 层岩地下：光值烧干就是伸手不见五指，出手自然慢——本作把"黑暗惩罚"落在攻击这一档 */
+  if(player.zone==='chasm'&&player.lumen<=0)mul*=0.72;
   if(player.fuT>0)mul*=(partyHasCN('tingyun',1)?1.34:1.28);
   if(player.xiaoT>0&&ch.id==='xiao')mul*=1.45;
   /* 散兵「拾玉得花」·火：优风倾姿期间攻击力 +30% */
@@ -25555,7 +27161,7 @@ function mountBite(){
   const ox=player.pos[0],oy=base+1.05,oz=player.pos[2];
   const origin=[ox+f[0]*0.7,oy,oz+f[1]*0.7];
   player.startAnim('swing',0.32,{seg:1});
-  fxSlashArc([ox,oy,oz],player.yaw,0.08,[0.72,0.52,1.0],2.6,0.3);
+  fxSlashArc([ox,oy,oz],fxYawOf(player.yaw),0.08,[0.72,0.52,1.0],2.6,0.3);
   fxBolt([origin[0],oy,origin[2]],[origin[0]+f[0]*3.6,oy+0.15,origin[2]+f[1]*3.6],
          [0.78,0.58,1.0],0.2,0.55,8);
   const dmg=atkOf(activeChar())*2.3;
@@ -25575,7 +27181,7 @@ function mountGuobaFire(){
   const m=mountCurrent(),f=mountFwd(),base=mountBaseY(m);
   const ox=player.pos[0]+f[0]*0.5,oy=base+0.78,oz=player.pos[2]+f[1]*0.5;
   const origin=[ox,oy,oz];
-  fxSlashArc([ox,oy,oz],player.yaw,0.05,[1,0.5,0.16],2.0,0.28);
+  fxSlashArc([ox,oy,oz],fxYawOf(player.yaw),0.05,[1,0.5,0.16],2.0,0.28);
   for(let i=1;i<=4;i++){
     const k=i/4;
     fxSphere([ox+f[0]*k*4.2,oy+0.05+k*0.12,oz+f[1]*k*4.2],
@@ -25705,7 +27311,7 @@ function updateMountAbilities(dt,m){
             knockFrom(h.e,[player.pos[0],py,player.pos[2]],1.5);
             fxHitSpark([h.e.pos[0],h.e.pos[1]+0.9,h.e.pos[2]],[1,0.9,0.55]);
           }
-          fxSlashArc([player.pos[0],py+1.0,player.pos[2]],player.yaw,0.12,[1,0.9,0.55],2.2,0.26);
+          fxSlashArc([player.pos[0],py+1.0,player.pos[2]],fxYawOf(player.yaw),0.12,[1,0.9,0.55],2.2,0.26);
           fxRing([player.pos[0],py+0.1,player.pos[2]],[1,0.9,0.58],2.4,0.4);
           sfxShock([player.pos[0],py+0.5,player.pos[2]],0.3,2.6,0.18,0.4);
         }else player.mountContactT=0.15;
@@ -27086,6 +28692,8 @@ function saveGame(){
       mts:mountSel||'',
       /* 冒险等级 / 世界等级与突破任务：老档没这两项就是 1 级冒险、0 级世界 */
       adv:[advLv|0,advExp|0],
+      /* 层岩地下的进度：晶石数、捡过的下标、哪几座淤泥涌口已经被烧掉 */
+      chsm:[chsmCryst|0,Object.keys(chsmGotGem),chsmVents.map(function(v){return v.dead?1:0;})],
       wl:[worldLv|0,wlMax|0,btState|0,btBoss||'']}));
     if(!NICK){                       // 老键位只在没起名字时清理，别把别人没搬完的档案删了
       LS.removeItem(MID_KEY);
@@ -27176,8 +28784,7 @@ function loadGame(){
   if(!mountSel)mountSel=firstOwnedMount();
   /* 冒险 / 世界等级：老档没这两项就 1 级冒险、0 级世界，突破任务重新按等级判定 */
   advLv=1;advExp=0;worldLv=0;wlMax=0;btState=0;btBoss='';
-  if(d.adv&&d.adv.length>=2){
-    advLv=clamp(d.adv[0]|0,1,ADV_CAP);
+  if(d.adv&&d.adv.length>=2){    advLv=clamp(d.adv[0]|0,1,ADV_CAP);
     advExp=Math.max(0,d.adv[1]|0);
     if(advLv>=ADV_CAP)advExp=0;
   }
@@ -27187,6 +28794,25 @@ function loadGame(){
     btState=clamp((d.wl[2]|0),0,3);
     btBoss=(d.wl[3]&&btFind(d.wl[3]))?String(d.wl[3]):'';
     if(btState>=2&&!btBoss)btState=1;      // 指定对象已经不存在了，退回"可接取"
+  }
+  /* 层岩地下的进度回填：晶石数、捡过的点位、被烧掉的淤泥涌口 */
+  chsmCryst=0;chsmGotGem={};
+  for(const v of chsmVents){v.dead=false;if(v.g)v.g.visible=true;if(v.core)v.core.visible=true;}
+  for(const g of chsmGems)if(g)g.visible=true;
+  if(d.chsm){
+    chsmCryst=Math.max(0,Math.min(CHSM_CRYSTALS.length,d.chsm[0]|0));
+    for(const i of (d.chsm[1]||[])){
+      const k=i|0;chsmGotGem[k]=1;
+      if(chsmGems[k])chsmGems[k].visible=false;
+    }
+    const vm=d.chsm[2]||[];
+    for(let i=0;i<chsmVents.length;i++){
+      if(!vm[i])continue;
+      const v=chsmVents[i];
+      v.dead=true;
+      if(v.g)v.g.visible=false;
+      if(v.core)v.core.visible=false;
+    }
   }
   btRefresh();
   uiAdv();
@@ -27332,7 +28958,8 @@ function applySavedPlace(){
   const p=savedPlace;savedPlace=null;
   if(!p)return false;
   let x=p[0],z=p[2];
-  let zone=(p[6]==='lair'||p[6]==='wolf'||p[6]==='sky'||p[6]==='azho'||p[6]==='qiu')?p[6]:'field';
+  let zone=(p[6]==='lair'||p[6]==='wolf'||p[6]==='sky'||p[6]==='azho'||p[6]==='qiu'||
+            p[6]==='chasm'||p[6]==='enkan')?p[6]:'field';
   /* 主世界的边界只管大陆：天空岛、风龙废墟、奔狼领都在六公里外的独立浮台上，
      用主世界的框去卡它们会把人直接踢回城里 */
   if(!isFinite(x)||!isFinite(z))return false;
@@ -27356,6 +28983,8 @@ function applySavedPlace(){
   if(zone==='sky'&&skyDist(x,z)>SKY_R+16)return false;
   if(zone==='azho'&&azhoDist(x,z)>AZHO_R+22)return false;
   if(zone==='qiu'&&qiuDist(x,z)>QIU_R+8)return false;
+  if(zone==='chasm'&&chsmDist(x,z)>CHSM_R+20)return false;
+  if(zone==='enkan'&&enkDist(x,z)>ENK_R+30)return false;
   if(zone!=='field'){                       // 秘境里回来：走传送那套区域切换
     doTeleport({x:x,z:z,zone:zone,name:'上次的位置'});
   }else{
@@ -27372,7 +29001,8 @@ function applySavedPlace(){
   player.camYaw=isFinite(p[4])?p[4]:player.camYaw;
   player.camPitch=clamp(isFinite(p[5])?p[5]:0.12,-1.35,1.35);
   mapZone=(player.zone==='lair'||player.zone==='wolf'||player.zone==='azho'||
-           player.zone==='sky'||player.zone==='qiu')?player.zone:'field';
+           player.zone==='sky'||player.zone==='qiu'||player.zone==='chasm'||
+           player.zone==='enkan')?player.zone:'field';
   return true;
 }
 /* 进游戏的见面礼：16000 原石，领取一次 */
@@ -27526,6 +29156,8 @@ const player={
      ——全部必须在字面量里声明，否则每帧读到 undefined 一路变 NaN */
   lnStack:0,lnFlareT:0,lnFoc:0,lnFocNext:0,
   ndFieldT:0,ndFieldX:0,ndFieldZ:0,ndEmGive:0,ndC6T:0,ndC6N:0,
+  /* 层岩地下：流明石触媒的光值与黑暗度、踩在黑泥里的减速计时与跳伤累积 */
+  lumen:0,chsmDark:0,mudT:0,mudAcc:0,
   tnFieldT:0,tnSwift:0,tnEmT:0,tnCalmT:0,tnIt:null,
   mnImgT:0,mnImgIt:null,mnC2T:0,mnC6T:0,mnC6S:0,
   dhFieldT:0,dhFieldX:0,dhFieldZ:0,dhBlood:0,dhLionT:0,dhBolt:0,dhC6Cd:0,
@@ -28151,7 +29783,7 @@ function wlSet(n){
   return true;
 }
 function wlLive(){
-  return [boss,bossWolf,bossHypo,bossVine,bossPyro,bossGeo,bossAzho,qiuBoss];
+  return [boss,bossWolf,bossHypo,bossVine,bossPyro,bossGeo,bossAzho,qiuBoss,chsmBoss,enkBoss];
 }
 /* ---- 突破任务：随机指定一只首领（天理除外），重生冷却中的不参与抽签 ---- */
 function btPool(){
@@ -28170,6 +29802,8 @@ function btPool(){
   one('bt_geo','无相之岩','南天海隅','seaIsle',geoRespawnT);
   one('bt_azho','若陀龙王','伏龙之地','azho',azhoRespawnT);
   one('bt_qiu','丘丘大王','丘丘现代城 · 市政厅','qiuarena',qiuBossRespawnT);
+  one('bt_chsm','溟泥之主','层岩巨渊 · 地下矿区大石厅','chsmhall',chsmBossRespawnT);
+  one('bt_enk','跋掣','渊下宫 · 常夜之渊','enkboss',enkBossRespawnT);
   return P;
 }
 function btFind(id){
@@ -28407,11 +30041,15 @@ function Enemy(typeKey,x,z){
   this.home=[x,z];this.group=null;this.leash=0;this.deck=null;   // 营地怪有牵引范围，不会全图追人
   this.isSlime=typeKey.indexOf('slime')===0;
   this.isWolf=(typeKey==='wolfspirit'||t.custom==='hound');
-  this.isBig=(typeKey==='mitachurl'||typeKey==='kairagi');
+  this.isBig=(typeKey==='mitachurl'||typeKey==='kairagi'||typeKey==='chsm_grunt'||
+              typeKey==='chsm_elite'||typeKey==='enk_guard');
   /* 璃月新怪与副本 boss：龙蜥/若陀走自己的动作与 AI，岩盾丘丘人带一层岩护盾 */
-  this.isLizard=(typeKey==='raycrawler');
+  this.isLizard=(typeKey==='raycrawler'||typeKey==='chsm_lizard'||typeKey==='enk_lizard');
+  this.isEnkLord=(typeKey==='enk_lord');    // 渊下宫的跋掣：鳐身 + 光须 + 四招循环
   this.isDragon=(typeKey==='azhdaha');
-  this.isNobushi=(typeKey==='nobushi'||typeKey==='kairagi');
+  this.isLord=(typeKey==='chsm_lord');      // 层岩地下的溟泥之主：自带建模与招式循环
+  this.isNobushi=(typeKey==='nobushi'||typeKey==='kairagi'||
+                  typeKey==='enk_hunter'||typeKey==='enk_guard');
   this.boss=!!t.boss;
   this.title=t.title||'';this.barOn=false;
   this.wb=t.wb||null;
@@ -28429,11 +30067,13 @@ function Enemy(typeKey,x,z){
   this.model=t.custom?wbSummonModel(t.custom,t.rgb)
             :(this.wb?buildWBBoss(this.wb)
             :(this.qiuKind?buildQiuMob(this.qiuKind,t.rgb)
+            :(this.isLord?buildChsmLord()
+            :(this.isEnkLord?buildEnkLord()
             :(this.isDragon?buildAzhdaha()
             :(this.isLizard?buildLizard(t.rgb)
-            :(this.isNobushi?buildNobushi(t.rgb,typeKey==='kairagi')
+            :(this.isNobushi?buildNobushi(t.rgb,typeKey==='kairagi'||typeKey==='enk_guard')
             :(this.isSlime?buildSlime(t.rgb)
-            :(this.isWolf?buildWolf(false):buildHilichurl(t.rgb,this.isBig))))))));
+            :(this.isWolf?buildWolf(false):buildHilichurl(t.rgb,this.isBig))))))))));
   this.model.setPos(x,this.pos[1],z);
   enemyRoot.add(this.model);
   this.deathRZ=0;
@@ -28557,15 +30197,14 @@ Enemy.prototype.takeDamage=function(dmg,element,isDot){
     const hard=crit||final>this.hpMax*0.06||final>140;
     const c=element?ELEMENTS[element].rgb:[1,0.96,0.86];
     if(hard){
-      fxStopT=0.06;fxShakeT=0.18;fxShakeA=0.07;
+      fxStop(0.035);fxShake(0.075,0.026);
       fxStar([this.pos[0],this.pos[1]+1.05,this.pos[2]],1.15,c,0.28);
       /* 雷元素的重击补一道真雷弧，替掉原来那圈紫色细环 */
       if(element==='electro')
         fxBolt([this.pos[0]+(Math.random()-0.5)*1.4,this.pos[1]+3.6,this.pos[2]+(Math.random()-0.5)*1.4],
                [this.pos[0],this.pos[1]+0.95,this.pos[2]],[0.80,0.68,1.0],0.17,0.36);
     }else if(final>this.hpMax*0.015){
-      fxStopT=Math.max(fxStopT,0.022);
-      fxShakeT=Math.max(fxShakeT,0.07);fxShakeA=Math.max(fxShakeA,0.024);
+      fxStop(0.011);fxShake(0.035,0.009);
     }
   }
   showDamage([this.pos[0],this.pos[1]+1.7,this.pos[2]],Math.round(final).toString(),
@@ -28684,7 +30323,7 @@ Enemy.prototype.beastAI=function(dt){
       fxParticles([cx,cy+1.4,cz],[0.72,0.60,0.34],7,26,1.0,false);
       if(dist<13.5&&!player.dead)hurtPlayer(this.atk,this);
     }else if(this.dState==='sweep'){
-      fxSlashArc([cx,cy+1.2,cz],this.yaw,0,[1.0,0.84,0.40],8.6,0.42);
+      fxSlashArc([cx,cy+1.2,cz],fxYawOf(this.yaw),0,[1.0,0.84,0.40],8.6,0.42);
       if(dist<9.6&&!player.dead)hurtPlayer(this.atk*0.8,this);
     }else if(this.dState==='rush'){
       this.pos[0]+=ux*8.5;this.pos[2]+=uz*8.5;
@@ -29554,7 +31193,7 @@ function wbEchoBoom(e,o){
     fxRing([o.x,y+0.14,o.z],c,o.r*2.0,0.55);
     fxParticles([o.x,y+0.5,o.z],c,o.r*1.2,10,0.5,false);
   }else if(o.style==='slash'){
-    fxSlashArc([o.x,y+1.4,o.z],o.yaw,0.12,c,o.r,0.3);
+    fxSlashArc([o.x,y+1.4,o.z],fxYawOf(o.yaw),0.12,c,o.r,0.3);
     fxRing([o.x,y+0.12,o.z],c,o.r*0.7,0.3);
   }else if(o.style==='tornado'){
     fxRing([o.x,y+0.12,o.z],c,o.r*1.9,0.45);
@@ -29952,7 +31591,7 @@ const WB_SKILL={
       tell(e){fxRing([e.pos[0],e.pos[1]+0.14,e.pos[2]],this.rgb,8,e.wbT+0.15);},
       hit(e,dist){const c=this.rgb;
         e.yaw+=Math.PI;
-        fxSlashArc([e.pos[0],e.pos[1]+1.0,e.pos[2]],e.yaw,0,c,8.6,0.35);
+        fxSlashArc([e.pos[0],e.pos[1]+1.0,e.pos[2]],fxYawOf(e.yaw),0,c,8.6,0.35);
         if(dist<8.6&&!player.dead)hurtPlayer(e.atk*0.7,e);}},
     {n:'lavaLeap',at:[8,40],w:1.7,wind:0.9,rec:0.7,p2:true,rgb:[1.00,0.60,0.24],
       tell(e){wbTellDot(e,e.wbTx,e.wbTz,7.0,e.wbT+0.3,this.rgb);},
@@ -30135,7 +31774,7 @@ const WB_SKILL={
       tell(e){fxRing([e.pos[0],e.pos[1]+0.14,e.pos[2]],this.rgb,8,e.wbT+0.15);},
       hit(e,dist){const c=this.rgb;
         e.yaw+=Math.PI;
-        fxSlashArc([e.pos[0],e.pos[1]+1.6,e.pos[2]],e.yaw,0.1,c,8.2,0.35);
+        fxSlashArc([e.pos[0],e.pos[1]+1.6,e.pos[2]],fxYawOf(e.yaw),0.1,c,8.2,0.35);
         wbEcho(e,e.pos[0],e.pos[2],0.05,8.2,e.atk*0.6,c,{style:'wave',push:2.6});}},
     {n:'chainBolt',at:[0,40],w:1.6,wind:0.95,rec:0.7,p2:true,rgb:[0.74,0.52,1.00],
       tell(e){wbTellDot(e,e.wbTx,e.wbTz,5.5,e.wbT+0.3,this.rgb);},
@@ -30744,7 +32383,7 @@ function childeStrike(e,dist,ux,uz){
     e.pos[0]+=dx/dd*go-dz/dd*3.2*e.cbSide;
     e.pos[2]+=dz/dd*go+dx/dd*3.2*e.cbSide;
     fxParticles([e.pos[0],cy+1.0,e.pos[2]],c,1.8,16,0.5,true);
-    fxSlashArc([e.pos[0],cy+1.5,e.pos[2]],e.yaw,0,c,6.2,0.3);
+    fxSlashArc([e.pos[0],cy+1.5,e.pos[2]],fxYawOf(e.yaw),0,c,6.2,0.3);
     if(near(e.pos[0],e.pos[2],6.2))hurtPlayer(e.atk*0.8,e);
     e.cbS='recover';e.cbT=0.4;
   }else if(mv==='storm'){
@@ -30769,7 +32408,7 @@ function childeComboStep(e,dist,ux,uz){
   e.pos[2]+=uz*go+ux*(step%2?1.1:-1.1);
   e.yaw=Math.atan2(player.pos[0]-e.pos[0],player.pos[2]-e.pos[2]);
   fxParticles([e.pos[0],cy+1.1,e.pos[2]],c,1.6,14,0.5,true);
-  fxSlashArc([e.pos[0],cy+1.4,e.pos[2]],e.yaw,0.1*step,c,5.6,0.28);
+  fxSlashArc([e.pos[0],cy+1.4,e.pos[2]],fxYawOf(e.yaw),0.1*step,c,5.6,0.28);
   if(!player.dead&&Math.hypot(player.pos[0]-e.pos[0],player.pos[2]-e.pos[2])<5.6){
     hurtPlayer(e.atk*(step>=3?0.9:0.6),e);
     if(step>=3)cbMark(e);
@@ -30983,7 +32622,7 @@ function signoraStrike(e,dist,ux,uz){
     for(let i=1;i<=4;i++){
       const rr=Math.min(dd+1,4+i*6);
       const ix=e.pos[0]+dx/dd*rr,iz=e.pos[2]+dz/dd*rr,iy=terrainHeight(ix,iz);
-      fxSlashArc([ix,iy+1.3,iz],e.yaw,0.1,c,4.2,0.3);
+      fxSlashArc([ix,iy+1.3,iz],fxYawOf(e.yaw),0.1,c,4.2,0.3);
       fxSphere([ix,iy+1.6,iz],c,1.0,0.3,0.7);
       if(near(ix,iz,3.6))hit=true;
     }
@@ -31234,7 +32873,7 @@ function raidenCastStep(e){
     fxParticles([e.pos[0],e.pos[1]+1.2,e.pos[2]],c,1.5,12,0.4,true);
     e.pos[0]=px;e.pos[2]=pz;
     e.yaw=Math.atan2(player.pos[0]-px,player.pos[2]-pz);
-    fxSlashArc([px,gy+1.6,pz],e.yaw,0,c,5.4,0.3);
+    fxSlashArc([px,gy+1.6,pz],fxYawOf(e.yaw),0,c,5.4,0.3);
     if(!player.dead&&Math.hypot(player.pos[0]-px,player.pos[2]-pz)<5.4){
       hurtPlayer(e.atk*0.5,e);
       e.rdEye=Math.min(100,(e.rdEye||0)+4);
@@ -31548,6 +33187,51 @@ Enemy.prototype.die=function(){
       toast('伏龙柱的符光一段段暗下去：摩拉 ×3500 · 原石 ×34，坑心落下一只宝箱');
     }
   }
+  /* 层岩地下的溟泥之主：城市首领同一档，奖励按世界等级浮动 */
+  if(this.isLord){
+    chsmBossRespawnT=240;chsmBoss=null;
+    this.barOn=false;showBossBar(false);
+    killCount+=6;$('#uiKill').textContent=killCount;
+    mora+=wlGain(7200);uiMora();
+    gem+=wlGain(48);uiGem();
+    grantAdv(760,'讨灭 溟泥之主');btNote('bt_chsm');
+    for(const m of player.party)m.energy=100;
+    grantMat('chsm',2+(Math.random()<0.5?1:0),'溟泥之主');
+    const la=grantArts(['lumen'],2,0.8,'溟泥之主');
+    if(la&&la.length)toast(artLine(la[0])+(la[1]?' · '+artLine(la[1]):''));
+    dropWeapon('溟泥之主',false,5);
+    grantFate(2,'地下首领 溟泥之主');
+    makeChest(CHSM_BOSS[0],CHSM_BOSS[1]-16);
+    /* 王一死，场上所有淤泥涌口一起枯掉：这片地下总算能自由走路了 */
+    for(const v of chsmVents){
+      if(v.dead)continue;
+      v.dead=true;
+      if(v.g)v.g.visible=false;
+      if(v.core)v.core.visible=false;
+    }
+    fxRing([this.pos[0],this.pos[1]+0.4,this.pos[2]],[0.62,0.90,1.0],20,1.4);
+    fxSphere([this.pos[0],this.pos[1]+2.6,this.pos[2]],[0.42,0.86,1.0],9.0,1.2,0.8);
+    toast('溟泥之主塌成一滩清水：摩拉 ×7200 · 原石 ×48 · 溟泥结晶，全区的淤泥涌口一并枯了');
+  }
+  /* 渊下宫的跋掣：与溟泥之主同一档，掉常世朱印与「常世冥歌」圣遗物 */
+  if(this.isEnkLord){
+    enkBossRespawnT=240;enkBoss=null;
+    this.barOn=false;showBossBar(false);
+    killCount+=6;$('#uiKill').textContent=killCount;
+    mora+=wlGain(7200);uiMora();
+    gem+=wlGain(48);uiGem();
+    grantAdv(760,'讨灭 跋掣');btNote('bt_enk');
+    for(const m of player.party)m.energy=100;
+    grantMat('enkan',2+(Math.random()<0.5?1:0),'跋掣');
+    const ea=grantArts(['eternal'],2,0.8,'跋掣');
+    if(ea&&ea.length)toast(artLine(ea[0])+(ea[1]?' · '+artLine(ea[1]):''));
+    dropWeapon('跋掣',false,5);
+    grantFate(2,'渊下宫首领 跋掣');
+    makeChest(ENK_BOSS[0]-26,ENK_BOSS[1]+18);
+    fxRing([this.pos[0],this.pos[1]+0.4,this.pos[2]],[0.52,0.92,1.0],22,1.4);
+    fxSphere([this.pos[0],this.pos[1]+2.6,this.pos[2]],[0.44,0.86,1.0],9.5,1.2,0.8);
+    toast('跋掣散成一片常夜的浅光：摩拉 ×7200 · 原石 ×48 · 常世朱印，场心落下一只宝箱');
+  }
   /* 丘丘现代城城主：市政厅台阶上的丘丘大王。城市首领不算周本，但奖励比野外首领厚一档 */
   if(this.qiuBoss){
     qiuBossSlain++;qiuBossRespawnT=QIU_BOSS_RESPAWN;qiuBoss=null;
@@ -31663,6 +33347,10 @@ Enemy.prototype.update=function(dt){
   if(this.isDragon||this.isLizard){this.beastAI(dt);return;}
   /* 丘丘现代城：帮众走自己的追击/施法/跃砸，大王有完整的四招循环 */
   if(this.qiu){qiuEnemyAI(this,dt);return;}
+  /* 溟泥之主：泥浪 / 黑泥喷涌 / 召涌口三招循环，钉在石厅台面上 */
+  if(this.isLord){chsmLordAI(this,dt);return;}
+  /* 跋掣：水月横扫 / 海渊涌潮 / 光须锁链 / 召深海眷属，钉在常夜之渊的地台上 */
+  if(this.isEnkLord){enkLordAI(this,dt);return;}
   const dx=player.pos[0]-this.pos[0];
   const dz=player.pos[2]-this.pos[2];
   const dist=Math.sqrt(dx*dx+dz*dz);
@@ -32373,7 +34061,7 @@ BossWolf.prototype.update=function(dt){
         const o=[this.pos[0]+fx*2.4,this.pos[1]+2.6,this.pos[2]+fz*2.4];
         for(let i=0;i<3;i++){
           const side=i===1?-1:1;
-          fxSlashArc(o,this.yaw+side*1.25,0.15,[0.72,0.92,1.0],5.4,0.26);
+          fxSlashArc(o,fxYawOf(this.yaw+side*1.25),0.15,[0.72,0.92,1.0],5.4,0.26);
         }
         fxParticles(o,[0.82,0.94,1.0],1.6,10,0.4,true);
         if(dist<7.5&&Math.abs(angDiff(Math.atan2(-dx,-dz),this.yaw))<0.75){
@@ -33148,7 +34836,7 @@ BossRegisvine.prototype.update=function(dt){
         [0.72,0.90,1.0],11,0.55);}
       if(!this.didHit&&this.stateT<0.7){
         this.didHit=true;
-        fxSlashArc([this.pos[0],this.fy+1.6,this.pos[2]],this.yaw,12,[0.74,0.92,1.0]);
+        fxSlashArc([this.pos[0],this.fy+1.6,this.pos[2]],fxYawOf(this.yaw),0.12,[0.74,0.92,1.0],12,0.4);
         if(pd<12&&!player.dead){hurtPlayer(this.phase===3?168:128);player.sheer=Math.min(100,player.sheer+10);}
       }
       if(this.stateT<=0){
@@ -33561,7 +35249,7 @@ BossPyrovine.prototype.update=function(dt){
         fxRing([this.pos[0],this.fy+0.3,this.pos[2]],[1.0,0.56,0.2],11,0.55);}
       if(!this.didHit&&this.stateT<0.7){
         this.didHit=true;
-        fxSlashArc([this.pos[0],this.fy+1.6,this.pos[2]],this.yaw,12,[1.0,0.62,0.22]);
+        fxSlashArc([this.pos[0],this.fy+1.6,this.pos[2]],fxYawOf(this.yaw),0.12,[1.0,0.62,0.22],12,0.4);
         if(pd<12&&!player.dead){hurtPlayer(this.phase===3?172:132);}
       }
       if(this.stateT<=0){
@@ -36615,6 +38303,8 @@ function zoneView(z){
   if(z==='wolf')return {cx:WARENA[0],cz:WARENA[1],span:WOLF_SPAN};
   if(z==='azho')return {cx:AZHO[0],cz:AZHO[1],span:AZHO_SPAN};
   if(z==='qiu')return {cx:QIUP[0],cz:QIUP[1],span:QIU_SPAN};
+  if(z==='chasm')return {cx:CHSM[0],cz:CHSM[1],span:CHSM_SPAN,sq:1};
+  if(z==='enkan')return {cx:ENK[0],cz:ENK[1],span:ENK_SPAN,sq:1};
   if(z==='sky')return {cx:SKYP[0],cz:SKYP[1],span:SKY_SPAN};
   if(z==='ds')return {cx:DS[0],cz:DS[1],span:DS_SPAN};
   if(z==='ly')return {cx:LY[0],cz:LY[1],span:LY_SPAN};
@@ -36622,9 +38312,16 @@ function zoneView(z){
   if(z==='world')return {cx:OV_C[0],cz:OV_C[1],span:OV_SPAN_X,spanZ:OV_SPAN_Z};
   return {cx:0,cz:0,span:MAP_WORLD};
 }
+/* 圆形区域（层岩地下 / 渊下宫）横竖必须同一个比例：否则画出来是圆、
+   锚点却按椭圆摆位，点下去的位置和图上对不上。spanZ 只给非圆页签用。 */
+function mapViewS(){
+  const v=zoneView();
+  if(v.sq){const s=(Math.min(MAP_W,MAP_H)/2-26)/v.span;return [s,s];}
+  return [(MAP_W/2-26)/v.span,(MAP_H/2-26)/(v.spanZ||v.span)];
+}
 function m2p(wx,wz){
-  const v=zoneView(),sx=(MAP_W/2-26)/v.span,sz=(MAP_H/2-26)/(v.spanZ||v.span);
-  return [MAP_W/2+(wx-v.cx)*sx,MAP_H/2+(wz-v.cz)*sz];
+  const v=zoneView(),S=mapViewS();
+  return [MAP_W/2+(wx-v.cx)*S[0],MAP_H/2+(wz-v.cz)*S[1]];
 }
 function tpMapPos(tp){
   /* 锚点只在它所属的那张图上画，所以直接用当前页签的坐标系 */
@@ -36633,7 +38330,7 @@ function tpMapPos(tp){
 /* 雪山锚点属于野外这张大陆图，但山体详图页签也要看得到 */
 function tpOnTab(tp){
   /* 总览图：大陆与稻妻现在共用一张量程，两边的锚点都画；天空岛仍在云上，只进自己的详图 */
-  if(mapZone==='world')return tp.zone!=='sky';
+  if(mapZone==='world')return tp.zone!=='sky'&&tp.zone!=='chasm'&&tp.zone!=='enkan';
   if(mapZone==='ina')return !!tp.ina;
   if(mapZone==='ds')return !!tp.ds;
   if(mapZone==='ly')return !!tp.lyTab;
@@ -36641,6 +38338,9 @@ function tpOnTab(tp){
   if(mapZone==='azho')return tp.id==='azho';
   /* 丘丘现代城是隔着五公里的独立地块，锚点只进它自己的详图 */
   if(mapZone==='qiu')return tp.zone==='qiu';
+  /* 层岩地下与渊下宫同理：两块都在地形网之外，别的锚点画上来会飞到图外 */
+  if(mapZone==='chasm')return tp.zone==='chasm';
+  if(mapZone==='enkan')return tp.zone==='enkan';
   /* 天空岛详图：岛上只有一个锚点，别的大陆锚点画上来会飞到图外 */
   if(mapZone==='sky')return tp.zone==='sky';
   /* 璃月 / 稻妻那批锚点全在野外图的量程之外，只在各自的页签上画，否则会堆在图外缘 */
@@ -36660,6 +38360,8 @@ function drawMap(){
   else if(mapZone==='wolf')drawMapWolf(ctx);
   else if(mapZone==='azho')drawMapAzho(ctx);
   else if(mapZone==='qiu')drawMapQiu(ctx);
+  else if(mapZone==='chasm')drawMapChasm(ctx);
+  else if(mapZone==='enkan')drawMapEnkan(ctx);
   else if(mapZone==='sky')drawMapSky(ctx);
   else if(mapZone==='ds')drawMapDS(ctx);
   else if(mapZone==='ly')drawMapLiyue(ctx);
@@ -36785,7 +38487,7 @@ function drawMapBase(){
   }
   ctx.strokeStyle='rgba(255,255,255,.14)';
   const wide=mapZone==='world',ru=wide?400:((cold||snow)?20:100),
-        rl=ru*((MAP_W/2-26)/zoneView().span);
+        rl=ru*mapViewS()[0];
   ctx.beginPath();ctx.moveTo(26,MAP_H-26);ctx.lineTo(26+rl,MAP_H-26);ctx.stroke();
   ctx.font='10px "PingFang SC",sans-serif';ctx.textAlign='left';
   ctx.fillStyle='rgba(255,255,255,.5)';
@@ -37120,6 +38822,131 @@ function drawMapAzho(){
   label('伏龙之地入口',[ex[0],ex[1]+18],'rgba(255,235,180,.95)');
 }
 /* ---------- 丘丘现代城：整城详图（三条环道 + 十二条放射道 + 十八座广场） ---------- */
+/* ---------- 层岩巨渊 · 地下矿区：一口只有灯的黑石盆 ---------- */
+function drawMapChasm(){
+  const ctx=mapCtx;
+  /* 圆形区域按短边算比例：只按 MAP_W 会把北边的高台与标签挤出画框 */
+  const s=(Math.min(MAP_W,MAP_H)/2-26)/CHSM_SPAN,c=[MAP_W/2,MAP_H/2];
+  const P=(x,z)=>[c[0]+(x-CHSM[0])*s,c[1]+(z-CHSM[1])*s];
+  /* 盆底与岩壁：可走线之外那一圈厚环就是拔起的岩壁 */
+  circ(c,(CHSM_WALL+34)*s,'rgba(16,14,24,.92)','rgba(120,96,168,.5)',1.8);
+  circ(c,CHSM_WALK*s,'rgba(26,28,42,.9)',null,0);
+  ctx.setLineDash([5,4]);
+  circ(c,CHSM_WALK*s,null,'rgba(110,214,255,.5)',1.3);
+  ctx.setLineDash([]);
+  /* 主矿道：南口一路到石厅，两侧是木支架的抽象双线 */
+  const z0=CHSM_SPAWN[1]-CHSM[1],z1=CHSM_HALL_L[1]+58;
+  ctx.strokeStyle='rgba(196,178,150,.5)';ctx.lineWidth=3.4;
+  ctx.beginPath();ctx.moveTo(c[0],c[1]+z0*s);ctx.lineTo(c[0],c[1]+z1*s);ctx.stroke();
+  ctx.lineWidth=1;
+  /* 三条支洞：岔口的方向与建模用的是同一份 CHSM_TUNNELS */
+  for(const t of CHSM_TUNNELS){
+    const r0=64+t[1];
+    ctx.strokeStyle='rgba(150,160,196,.42)';ctx.lineWidth=2.6;
+    ctx.beginPath();
+    ctx.moveTo(c[0]+Math.cos(t[0])*64*s,c[1]+Math.sin(t[0])*64*s);
+    ctx.lineTo(c[0]+Math.cos(t[0])*r0*s,c[1]+Math.sin(t[0])*r0*s);ctx.stroke();
+    ctx.fillStyle='rgba(120,220,255,.85)';
+    ctx.beginPath();ctx.arc(c[0]+Math.cos(t[0])*(r0-16)*s,c[1]+Math.sin(t[0])*(r0-16)*s,3,0,TAU);
+    ctx.fill();
+  }
+  ctx.lineWidth=1;
+  /* 黑泥沼：紫黑色的圆，涌口烧掉之后改成淡青描边 */
+  for(const v of chsmVents){
+    const p=P(v.x,v.z);
+    circ(p,(v.r)*s,v.dead?'rgba(30,44,58,.5)':'rgba(46,20,58,.86)',
+      v.dead?'rgba(120,220,255,.5)':'rgba(178,96,214,.8)',1.4);
+  }
+  /* 光源：每一个都画成一粒青蓝小光点，图上就能看出"哪里能喘气" */
+  for(const L of CHSM_LIGHTS){
+    const p=P(L.x,L.z);
+    ctx.fillStyle='rgba(150,232,255,.8)';
+    ctx.beginPath();ctx.arc(p[0],p[1],1.7,0,TAU);ctx.fill();
+  }
+  /* 流明晶石：没捡的画成菱形，捡过的只留一个空心圈 */
+  for(let i=0;i<CHSM_CRYSTALS.length;i++){
+    const cc=CHSM_CRYSTALS[i],p=P(CHSM[0]+cc[0],CHSM[1]+cc[1]);
+    if(chsmGotGem[i]){
+      ctx.strokeStyle='rgba(140,190,210,.35)';
+      ctx.beginPath();ctx.arc(p[0],p[1],2.4,0,TAU);ctx.stroke();
+    }else{
+      ctx.save();ctx.translate(p[0],p[1]);ctx.rotate(Math.PI/4);
+      ctx.fillStyle='rgba(180,246,255,.95)';ctx.fillRect(-2.4,-2.4,4.8,4.8);ctx.restore();
+    }
+  }
+  /* 大石厅与断柱圈 */
+  const hp=P(CHSM_BOSS[0],CHSM_BOSS[1]);
+  ctx.setLineDash([4,4]);
+  circ(hp,54*s,null,'rgba(178,96,214,.85)',1.6);
+  ctx.setLineDash([]);
+  for(let i=0;i<12;i++){
+    const a=i/12*TAU;
+    ctx.fillStyle='rgba(150,140,170,.7)';
+    ctx.beginPath();ctx.arc(hp[0]+Math.cos(a)*44*s,hp[1]+Math.sin(a)*44*s,1.8,0,TAU);ctx.fill();
+  }
+  /* 井架提升机（回程）与南口 */
+  const sp=P(CHSM_SPAWN[0],CHSM_SPAWN[1]);
+  ctx.fillStyle='rgba(255,206,120,.95)';
+  ctx.beginPath();ctx.arc(sp[0],sp[1],3.4,0,TAU);ctx.fill();
+  label('临时主矿道 · 井架',[sp[0],sp[1]+16],'rgba(255,224,170,.85)');
+  label('大石厅 · 溟泥之主',[hp[0],hp[1]+62*s+14],'rgba(220,170,246,.9)');
+  label('西矿道',[P(-150,-40)[0],P(-150,-40)[1]-8],'rgba(170,200,230,.7)');
+  label('东晶洞',[P(150,-40)[0],P(150,-40)[1]-8],'rgba(170,200,230,.7)');
+  label('北水牢',[P(0,-208)[0],P(0,-208)[1]-8],'rgba(170,200,230,.7)');
+  /* 场上驻军与 boss：跟着实时敌人走 */
+  for(const e of enemies){
+    if(!e.alive||e===chsmBoss)continue;
+    if(chsmDist(e.pos[0],e.pos[2])>CHSM_WALK)continue;
+    const p=P(e.pos[0],e.pos[2]);
+    ctx.fillStyle='rgba(232,120,120,.85)';
+    ctx.beginPath();ctx.arc(p[0],p[1],2,0,TAU);ctx.fill();
+  }
+  if(chsmBoss&&chsmBoss.alive){
+    const p=P(chsmBoss.pos[0],chsmBoss.pos[2]);
+    ctx.fillStyle='rgba(255,150,255,.95)';
+    ctx.beginPath();ctx.arc(p[0],p[1],4.2,0,TAU);ctx.fill();
+  }
+}
+/* ---------- 渊下宫：海渊之下的常世遗迹（螺旋空岛） ---------- */
+function drawMapEnkan(){
+  const ctx=mapCtx;
+  const s=(Math.min(MAP_W,MAP_H)/2-26)/ENK_SPAN,c=[MAP_W/2,MAP_H/2];
+  circ(c,ENK_R*s,'rgba(10,20,34,.9)','rgba(120,200,230,.45)',1.6);
+  for(const pl of ENK_PLATS){
+    const p=[c[0]+pl.dx*s,c[1]+pl.dz*s];
+    circ(p,pl.r*s,'rgba(24,44,66,.92)','rgba(150,226,246,.6)',1.3);
+  }
+  ctx.strokeStyle='rgba(150,226,246,.42)';ctx.lineWidth=2;
+  for(const b of ENK_BRIDGES){
+    const A=ENK_PLATS[b[0]],B=ENK_PLATS[b[1]];
+    ctx.beginPath();
+    ctx.moveTo(c[0]+A.dx*s,c[1]+A.dz*s);ctx.lineTo(c[0]+B.dx*s,c[1]+B.dz*s);
+    ctx.stroke();
+  }
+  ctx.lineWidth=1;
+  const tp=[c[0]+(ENK_SPAWN[0]-ENK[0])*s,c[1]+(ENK_SPAWN[1]-ENK[1])*s];
+  ctx.fillStyle='rgba(255,206,120,.95)';
+  ctx.beginPath();ctx.arc(tp[0],tp[1],3.4,0,TAU);ctx.fill();
+  label('海渊之眼 · 狭间之街',[tp[0],tp[1]+16],'rgba(255,224,170,.85)');
+  const cp=[c[0]+(ENK_TOWER[0]-ENK[0])*s,c[1]+(ENK_TOWER[1]-ENK[1])*s];
+  ctx.setLineDash([4,4]);circ(cp,30*s,null,'rgba(255,214,140,.8)',1.5);ctx.setLineDash([]);
+  label('大日御舆',[cp[0],cp[1]-34],'rgba(255,232,180,.9)');
+  const bp=[c[0]+(ENK_BOSS[0]-ENK[0])*s,c[1]+(ENK_BOSS[1]-ENK[1])*s];
+  ctx.setLineDash([4,4]);circ(bp,ENK_ARENA_R*s,null,'rgba(140,220,255,.85)',1.6);ctx.setLineDash([]);
+  label('常夜之渊 · 跋掣',[bp[0],bp[1]+ENK_ARENA_R*s+14],'rgba(180,236,255,.9)');
+  for(const e of enemies){
+    if(!e.alive||e===enkBoss)continue;
+    if(enkDist(e.pos[0],e.pos[2])>ENK_R)continue;
+    const p=[c[0]+(e.pos[0]-ENK[0])*s,c[1]+(e.pos[2]-ENK[1])*s];
+    ctx.fillStyle='rgba(232,120,120,.85)';
+    ctx.beginPath();ctx.arc(p[0],p[1],2,0,TAU);ctx.fill();
+  }
+  if(enkBoss&&enkBoss.alive){
+    const p=[c[0]+(enkBoss.pos[0]-ENK[0])*s,c[1]+(enkBoss.pos[2]-ENK[1])*s];
+    ctx.fillStyle='rgba(160,240,255,.95)';
+    ctx.beginPath();ctx.arc(p[0],p[1],4.2,0,TAU);ctx.fill();
+  }
+}
 function drawMapQiu(){
   const ctx=mapCtx;
   const s=(MAP_W/2-26)/QIU_SPAN;
@@ -38034,9 +39861,11 @@ function doTeleport(tp){
   dropUpdrafts();
   player.chill=0;
   fxCircle([player.pos[0],player.pos[1]+0.06,player.pos[2]],2.2,[1,0.85,0.45],0.5,{beam:false,runes:9});
-  const wasQiu=player.zone==='qiu';
+  const wasQiu=player.zone==='qiu',wasChsm=player.zone==='chasm',wasEnk=player.zone==='enkan';
   player.zone=tp.zone||'field';
   if(wasQiu&&player.zone!=='qiu'){qiuCullCity();mapZone='field';}   // 离开现代城就把整城驻军收掉
+  if(wasChsm&&player.zone!=='chasm'){chsmCull();mapZone='field';}   // 地下矿区的驻军同理
+  if(wasEnk&&player.zone!=='enkan'){enkCull();mapZone='field';}
   /* 落点立刻算一次地界：这张图关掉后小地图要报菜名，别等下一帧才反应 */
   player.onIna=player.zone==='field'&&inInazuma(tp.x,tp.z);
   player.dashT=0;
@@ -38117,6 +39946,41 @@ function doTeleport(tp){
       toast('踏上天空岛：中心广场浮着一枚缓缓自转的黑赤方块，靠近按 F 召唤天理');
     }
     closeMap();saveGame();return;
+  }else if(player.zone==='chasm'){
+    /* 层岩地下：五公里外的独立石盆，进来就把地面所有首领脱战复位。
+       驻军按需现界，离开时 chsmCull 整批收掉；光照玩法也在这里起手。 */
+    if(boss&&boss.active)boss.disengage();
+    if(bossWolf&&bossWolf.active)bossWolf.disengage();
+    if(bossHypo&&bossHypo.active)bossHypo.disengage();
+    if(bossVine&&bossVine.active)bossVine.disengage();
+    if(bossPyro&&bossPyro.active)bossPyro.disengage();
+    if(bossGeo&&bossGeo.active)bossGeo.disengage();
+    if(bossSky)skyUnsummon(true);
+    if(domRun.active)domAbandon();
+    player.chill=0;player.sheer=0;
+    if(player.lumen<1)player.lumen=1;
+    spawnChsmMobs();
+    bigMsg('层岩巨渊 · 地下矿区');
+    toast('地下矿区：头顶没有天，只有流明晶的蓝光。灯下安全，灯外越待越暗——'
+      +'大石厅那边盘着溟泥之主，淤泥涌口要按 F 花 1 格光值烧穿');
+  }else if(player.zone==='enkan'){
+    /* 渊下宫：常世的海渊之上浮着一圈圈空岛，进来先清场——
+       这里没有水面，踩空就是一条直线掉到判死，所以浮力判定也一并关掉。 */
+    if(boss&&boss.active)boss.disengage();
+    if(bossWolf&&bossWolf.active)bossWolf.disengage();
+    if(bossHypo&&bossHypo.active)bossHypo.disengage();
+    if(bossVine&&bossVine.active)bossVine.disengage();
+    if(bossPyro&&bossPyro.active)bossPyro.disengage();
+    if(bossGeo&&bossGeo.active)bossGeo.disengage();
+    if(bossSky)skyUnsummon(true);
+    if(domRun.active)domAbandon();
+    player.chill=0;player.sheer=0;
+    player.swim=false;player.gliding=false;
+    if(player.mountId)dismount('渊下宫靠栈桥走路 · 坐骑留在海渊之上');
+    spawnEnkMobs();
+    bigMsg('渊下宫 · 常世');
+    toast('渊下宫：七块空岛螺旋抬升，岛与岛之间只有栈桥。踩空掉进海渊就回不来——'
+      +'最北边的常夜之渊盘着跋掣');
   }else if(player.zone==='qiu'){
     /* 丘丘现代城：5 公里外的独立地块，进来就把其他首领全部脱战复位。
        驻军是按需现界的：只在城内保留，离开时 qiuCullCity 整批收掉。 */
@@ -38189,7 +40053,8 @@ function refreshMap(){drawMap();buildMapBtns();}
 const MAP_ZONES=[['world','提瓦特 · 总览'],
                  ['field','蒙德 · 野外'],['ly','璃月 · 野外'],['ina','稻妻 · 群岛'],
                  ['lair','风龙废墟'],['wolf','奔狼领'],['azho','伏龙之地'],['ds','龙脊雪山'],
-                 ['qiu','丘丘现代城'],['sky','天空岛']];
+                 ['qiu','丘丘现代城'],['sky','天空岛'],
+                 ['chasm','层岩 · 地下矿区'],['enkan','渊下宫']];
 const MAP_SUBS={world:'整块大陆 · 蒙德 / 龙脊雪山 / 璃月连成一片',
                 field:'蒙德大陆 · 野外与龙脊雪山',ly:'璃月地界 · 港城与荻花洲',
                 ina:'稻妻群岛 · 西海尽头的七座岛，望潮堤与蒙德相连',
@@ -38197,7 +40062,9 @@ const MAP_SUBS={world:'整块大陆 · 蒙德 / 龙脊雪山 / 璃月连成一�
   azho:'伏龙之地 · 若陀龙王盘踞的石盆',
                 ds:'龙脊雪山 · 大陆西南',
                 qiu:'丘丘现代城 · 南天海外的白色都会，面积抵得上整片璃月',
-                sky:'天空岛 · 悬在东北海上的浮空岛群，十三道桥串起八块地台'};
+                sky:'天空岛 · 悬在东北海上的浮空岛群，十三道桥串起八块地台',
+                chasm:'层岩巨渊 · 地下矿区：坑底矿道口钻下来，光只从流明晶来',
+                enkan:'渊下宫 · 海祇岛之下的常世遗迹，从立海的漩涡潜进去'};
 function renderMapTabs(){
   const tabs=$('#mapTabs');
   tabs.innerHTML='';
@@ -38240,6 +40107,8 @@ function miniZoneName(){
   if(player.zone==='dom')return '祝圣秘境';
   if(player.zone==='abyss')return '奈落擂台';
   if(player.zone==='qiu')return '丘丘现代城';
+  if(player.zone==='chasm')return '层岩巨渊 · 地下矿区';
+  if(player.zone==='enkan')return '渊下宫 · 常世';
   if(player.zone==='lair')return '风龙废墟';
   if(player.zone==='wolf')return '奔狼领';
   if(player.zone==='azho')return '伏龙之地';
@@ -38286,6 +40155,20 @@ function miniSample(){
       if(d<QIU_ARENA_R){r=176;g=146;b=92;}
       else if(ringR<3.2||da<3.2){r=224;g=228;b=234;}
       else {r=92;g=100;b=110;}
+    }else if(chsmDist(wx,wz)<CHSM_WALL+36){
+      /* 地下不走地形色带：石盆是靛黑，光源附近泛青蓝，黑泥沼泛紫，壁外纯黑 */
+      const cd=chsmDist(wx,wz),lit=chsmLightAt(wx,wz);
+      let mud=0;
+      for(const v of chsmVents)if(!v.dead&&Math.hypot(wx-v.x,wz-v.z)<v.r)mud=1;
+      r=lerp(20,88,lit)+mud*28;g=lerp(24,152,lit)+mud*7;
+      b=lerp(38,182,lit)+mud*34;
+      if(cd>CHSM_WALL){r=13;g=12;b=19;}
+    }else if(enkDist(wx,wz)<ENK_R+40){
+      /* 渊下宫：蓝白地台 + 木栈桥，沿口之外是常夜的海渊，小地图上一律抹成近黑 */
+      const pp=enkRaw(wx,wz);
+      if(pp<=ENK_VOID+0.5){r=7;g=11;b=24;}
+      else if(enkPlatAt(wx,wz)){r=126;g=152;b=196;}
+      else {r=104;g=84;b=62;}
     }else if(waterMask(wx,wz)&&h<WATER_Y){
       const k=clamp((WATER_Y-h)/10,0,1);
       r=lerp(52,14,k);g=lerp(112,44,k);b=lerp(158,98,k);
@@ -39363,6 +41246,8 @@ function respawnAll(){
   player.sgDew=0;player.sgC6T=0;player.sgC6cr=0;player.sgC6cd=0;
   player.dashT=0;
   if(player.zone==='qiu'){qiuCullCity();mapZone='field';}   // 死在现代城：驻军整批收走，人回蒙德城门
+  if(player.zone==='chasm'){chsmCull();mapZone='field';}    // 死在地下矿区同理，复活回到蒙德城门
+  if(player.zone==='enkan'){enkCull();mapZone='field';}
   player.zone='field';player.chill=0;
   // 阵亡后回到城门，人已经不在雪线上了
   player.sheer=0;player.sheerWarn=false;sheerAcc=0;dsAnnounced=false;
@@ -39658,7 +41543,9 @@ function updatePlayer(dt){
   const gy0=supportHeight(player.pos[0],player.pos[2],player.pos[1]);
   const wdep=WATER_Y-terrainHeight(player.pos[0],player.pos[2]);
   let mt=mountCurrent();
-  const onWater=wdep>0.45&&gy0<WATER_Y-0.05;
+  /* 渊下宫脚下一片深值是"常夜之海"的虚空，不是能浮住人的水：关掉入水判定，
+     让人一路掉下去，由 updatePlayer 的 enkan 分支判死。 */
+  const onWater=player.zone!=='enkan'&&wdep>0.45&&gy0<WATER_Y-0.05;
   let justDismount=false;
   /* 不会游泳的坐骑（陆行）一碰到水面就自动收起来，人直接落水 */
   if(mt&&!mt.fly&&!mt.water&&onWater){
@@ -39669,7 +41556,7 @@ function updatePlayer(dt){
     if(wdep<0.45||gy0>=WATER_Y-0.05){
       player.swim=false;player.vel[1]=Math.max(player.vel[1],1.4);
     }
-  }else if(!player.mountId&&wdep>0.45&&gy0<WATER_Y-0.05&&player.pos[1]<WATER_Y+0.5&&
+  }else if(onWater&&!player.mountId&&wdep>0.45&&gy0<WATER_Y-0.05&&player.pos[1]<WATER_Y+0.5&&
            !player.climb&&!player.gliding&&player.dashT<=0&&player.bullT<=0){
     player.swim=true;player.swimPhase=0;
     fxRing([player.pos[0],WATER_Y-0.04,player.pos[2]],[0.62,0.86,1.0],2.4,0.45);
@@ -40000,6 +41887,24 @@ function updatePlayer(dt){
       player.pos[2]=QIUP[1]+qdz/qd*qlim;
       if(player.vel){player.vel[0]=0;player.vel[2]=0;}
     }
+  }else if(player.zone==='chasm'){
+    /* 地下矿区：四周是拔地而起的岩壁，走不到边缘之外；踩进黑泥会明显变慢 */
+    const qx=player.pos[0]-CHSM[0],qz=player.pos[2]-CHSM[1];
+    const qd=Math.hypot(qx,qz),qlim=CHSM_WALK;
+    if(qd>qlim){
+      player.pos[0]=CHSM[0]+qx/qd*qlim;player.pos[2]=CHSM[1]+qz/qd*qlim;
+      if(player.vel){player.vel[0]=0;player.vel[2]=0;}
+    }
+  }else if(player.zone==='enkan'){
+    /* 渊下宫没有障壁：平台之间就是海渊，踩空一直掉，掉满一程直接判死。
+       注意脚下那片"海"不是水——ENK_VOID 在海平面以下很深，若不关掉入水判定，
+       人会先被浮力托在 -1 米处游着，永远掉不到判死的深度。 */
+    const ex=player.pos[0]-ENK[0],ez=player.pos[2]-ENK[1],ed=Math.hypot(ex,ez);
+    if(ed>ENK_R+40){
+      player.pos[0]=ENK[0]+ex/ed*(ENK_R+40);
+      player.pos[2]=ENK[1]+ez/ed*(ENK_R+40);
+    }
+    if(!player.dead&&player.pos[1]<-ENK_FALL)enkFallDeath();
   }else if(player.zone==='sky'){
     /* 天空岛没有障壁了：地台之外就是虚空，踩空就一直掉。
        掉满 SKY_FALL 米直接判死——不必等人落到海面上（那还差三百米）。 */
@@ -40553,7 +42458,13 @@ const SKY={field:[0.66,0.80,0.94,120,460,0.50,0.56,0.62],
   /* 天空岛：站在 300m 的云层之上，天光最亮、雾也最远，能一直看到海平线 */
   sky:[0.70,0.83,0.98,210,880,0.62,0.64,0.72],
   /* 丘丘现代城：浮空白台，晴天的海上一片亮白，雾拉开到能看见整圈塔影 */
-  qiu:[0.74,0.83,0.92,170,900,0.62,0.66,0.72]};
+  qiu:[0.74,0.83,0.92,170,900,0.62,0.66,0.72],
+  /* 层岩地下：不透光的石盆，但用户要"正常亮度"——环境光给到比野外还足的一档，
+     雾色从近黑提到石灰蓝、雾距拉开到能看见整只石盆；黑与不黑交给流明石那圈遮罩。 */
+  chasm:[0.20,0.225,0.28,60,520,0.56,0.60,0.66],
+  /* 渊下宫：大海之下的常世，靛青浓雾 + 一点点青蓝自发光。
+     雾距要拉开到能看见整条螺旋与中心的日轮，不然这片世界一眼看过去只有脚下。 */
+  enkan:[0.055,0.085,0.145,60,430,0.20,0.28,0.40]};
 const skyNow=SKY.field.slice();
 const skyMix=SKY.field.slice();
 const projM=m4();
@@ -41500,6 +43411,7 @@ function loop(now){
      但计时器按真实时间走，所以"咔"的一下之后立刻恢复 */
   const rdt=dt;
   if(fxStopT>0){fxStopT-=rdt;dt*=0.02;}
+  if(fxStopCool>0)fxStopCool-=rdt;
   if(fxShakeT>0)fxShakeT-=rdt;
   gameTime+=dt;
   fxBudget(dt);            /* 帧时间掉下去就先减粒子，别让人多的那一秒卡成幻灯片 */
@@ -41541,6 +43453,8 @@ function loop(now){
     updateLiyue(dt);
     updateInazuma(dt);
     updateQiuCity(dt);                // 丘丘现代城：只在城内或附近才动那些活体街具
+    updateChasmUnder(dt);             // 层岩地下：晶体、涌口、光值与黑泥
+    updateEnkanomiya(dt);             // 渊下宫：地台自转、回响、跋掣复活与坠落复位
     updateShieldFx(dt);
     separateEnemies();
     for(const e of enemies)e.update(dt);
@@ -41871,6 +43785,8 @@ bootStep(400,0.68,'点亮七天神像与秘境门…',function(){
   registerLiyue();
   registerInazuma();
   registerQiuCity();
+  registerChasmUnder();
+  registerEnkanomiya();
   /* 建岛期间临时打开天空高度层：岛上所有道具/台基/锚点都按 terrainHeight 摆，
      平时这一层是不参与的（不然会把 303m 的岩台烘进大陆那张网） */
   {const _sk=skyPush(true);try{registerSkyIsle();}finally{skyPop(_sk);}}
