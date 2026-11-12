@@ -1,3 +1,4 @@
 # IDE 配置不入库
 .idea/
 *.iml
+.godot/
